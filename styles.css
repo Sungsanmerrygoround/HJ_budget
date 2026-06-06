@@ -140,15 +140,21 @@ select:focus, input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px 
 .cap-status { margin-top: 12px; font-size: 13px; color: var(--primary); font-weight: 600; text-align: center; }
 .cap-editor { margin-top: 14px; }
 .cap-row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
-.cap-row input, .cap-row select { padding: 9px 9px; font-size: 13px; border-radius: 9px; }
-.cap-row .cap-desc { flex: 1.4; min-width: 0; }
-.cap-row .cap-cat { flex: 1; }
+.cap-row input, .cap-row select { padding: 9px 9px; font-size: 13px; border-radius: 9px; min-width: 0; }
+.cap-row .cap-desc { flex: 1.4; }
+.cap-row .cap-cat {
+  flex: 1;
+  padding-right: 20px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='6' viewBox='0 0 8 6'%3E%3Cpath d='M0 0l4 6 4-6z' fill='%236B7280'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+}
 .cap-row .cap-amt { flex: 0.9; text-align: right; }
 .cap-row .cap-del { flex: none; width: 34px; padding: 0; background: var(--red-soft); color: var(--red); border: 1px solid rgba(220,53,69,0.15); border-radius: 9px; height: 34px; cursor: pointer; }
-.cap-import-row { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; gap: 10px; }
-.cap-import-row .total { font-size: 13px; color: var(--sub); }
+.cap-import-row { display: flex; flex-direction: column; align-items: stretch; margin-top: 14px; gap: 10px; }
+.cap-import-row .total { font-size: 13px; color: var(--sub); text-align: right; }
 .cap-import-row .total b { color: var(--text); font-size: 15px; }
-.cap-import-btn { flex: none; }
+.cap-import-btn { margin-top: 0; }
 
 /* ─── CHART ─── */
 .chart-card { background: var(--surface); border-radius: var(--radius); padding: 20px; border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
