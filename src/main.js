@@ -560,14 +560,30 @@ function setupCapture() {
         date: `${m + 1}/${day} ${it.time || "00:00"}`,
       });
     }
+    // 중복 판별 키: 날짜 + 가맹점 + 금액
+    const keyOf = (e) => `${e.date}|${e.desc}|${e.amount}`;
     let added = 0;
+    let skipped = 0;
     try {
       for (const key in groups) {
         const g = groups[key];
         const data = await loadMonth(uid, g.year, g.month);
-        const merged = [...(data.entries || []), ...g.entries];
-        await saveMonth(uid, g.year, g.month, { entries: merged, budget: data.budget || 0 });
-        added += g.entries.length;
+        const existing = data.entries || [];
+        const seen = new Set(existing.map(keyOf)); // 이미 저장된 항목들
+        const toAdd = [];
+        for (const e of g.entries) {
+          const k = keyOf(e);
+          if (seen.has(k)) {
+            skipped++; // 이미 있는 거래 → 건너뜀
+            continue;
+          }
+          seen.add(k); // 같은 캡쳐 안의 중복도 방지
+          toAdd.push(e);
+        }
+        if (toAdd.length) {
+          await saveMonth(uid, g.year, g.month, { entries: [...existing, ...toAdd], budget: data.budget || 0 });
+          added += toAdd.length;
+        }
       }
     } catch (e) {
       console.error(e);
@@ -585,7 +601,8 @@ function setupCapture() {
     capOcrBtn.hidden = true;
     capFile.value = "";
     capStatus.hidden = false;
-    capStatus.textContent = `✅ ${added}건 추가 완료! '내역'·'차트'에서 확인하세요.`;
+    capStatus.textContent =
+      `✅ ${added}건 추가 완료!${skipped > 0 ? ` (중복 ${skipped}건 건너뜀)` : ""} '내역'·'차트'에서 확인하세요.`;
 
     await loadData(); // 현재 월 갱신
     switchView("list");
