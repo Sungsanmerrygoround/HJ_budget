@@ -2,7 +2,7 @@
 // 앱 골격(HTML/CSS/JS/아이콘)을 캐시해 두 번째 방문부터 빠르게 띄웁니다.
 // 외부 CDN(Tesseract/Chart/Firebase)과 Firestore 요청은 그냥 네트워크로 통과시킵니다.
 
-const CACHE = "snap-budget-v1";
+const CACHE = "snap-budget-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -27,9 +27,16 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
-  // 같은 출처(우리 앱 파일)만 캐시 우선, 나머지는 네트워크
+  // 같은 출처(우리 앱 파일)만 처리, 외부 CDN/Firestore는 그냥 통과
   if (url.origin !== location.origin) return;
+  // 네트워크 우선: 항상 최신을 받아오고, 오프라인일 때만 캐시로 대체
   e.respondWith(
-    caches.match(e.request).then((hit) => hit || fetch(e.request))
+    fetch(e.request)
+      .then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        return res;
+      })
+      .catch(() => caches.match(e.request))
   );
 });
