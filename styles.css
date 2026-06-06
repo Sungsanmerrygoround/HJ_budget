@@ -63,11 +63,18 @@ header { padding: 24px 20px 0; background: var(--bg); position: sticky; top: 0; 
 .header-title { font-family: var(--serif); font-size: 30px; color: var(--text); letter-spacing: -0.5px; line-height: 1; }
 .header-title span { color: var(--primary); }
 .header-year {
-  display: inline-flex; align-items: center; gap: 5px;
+  display: inline-flex; align-items: center; gap: 6px;
   font-size: 11px; color: var(--sub); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
-  background: var(--surface); padding: 5px 11px; border-radius: 20px;
+  background: var(--surface); padding: 4px 8px; border-radius: 20px;
   border: 1px solid var(--border); box-shadow: var(--shadow-xs); width: fit-content;
 }
+.header-year .year-nav {
+  background: transparent; border: none; padding: 2px 4px; margin: 0;
+  font-size: 10px; color: var(--sub2); cursor: pointer; line-height: 1; border-radius: 6px;
+  width: auto;
+}
+.header-year .year-nav:active { color: var(--primary); transform: scale(0.9); }
+#yearLabel { min-width: 44px; text-align: center; }
 
 /* ─── MONTH TABS ─── */
 .month-scroll { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 16px; scrollbar-width: none; }

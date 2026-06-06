@@ -119,6 +119,13 @@ async function saveData() {
   }
 }
 
+// ── 연도 이동 ──
+function changeYear(delta) {
+  currentYear += delta;
+  buildMonthTabs();
+  loadData();
+}
+
 // ── 월별 탭 ──
 function buildMonthTabs() {
   const container = $("monthTabs");
@@ -589,6 +596,10 @@ function setupCapture() {
 function wireEvents() {
   $("btnAdd").addEventListener("click", addEntry);
   $("btnBudget").addEventListener("click", saveBudget);
+
+  // 연도 이동 ◀ ▶
+  $("yearPrev").addEventListener("click", () => changeYear(-1));
+  $("yearNext").addEventListener("click", () => changeYear(1));
   $("btnSaveEdit").addEventListener("click", saveEdit);
   $("btnDelete").addEventListener("click", deleteEntry);
   $("editClose").addEventListener("click", closeEditModal);
