@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>snap-budget · 캡쳐로 쓰는 가계부</title>
+  <meta name="theme-color" content="#4F46E5" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+
+  <!-- 폰트 -->
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Outfit:wght@300;400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- 차트 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <!-- OCR (캡쳐 글자 인식) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div id="loadingBar"></div>
+
+<!-- 동기화 상태 (가족 자동로그인이라 버튼 없음) -->
+<div id="user-bar" class="user-bar" hidden><span id="user-email"></span></div>
+
+<header>
+  <div class="header-top">
+    <div class="header-left">
+      <div class="header-title">snap·<span>budget</span></div>
+    </div>
+    <div class="header-year" id="yearLabel"></div>
+  </div>
+  <div class="month-scroll" id="monthTabs"></div>
+</header>
+
+<!-- Firebase 설정 전 안내 -->
+<div id="config-banner" class="config-banner" hidden>
+  ⚠️ Firebase 설정이 필요해요. <code>src/firebase-config.js</code>를 채우면 저장이 켜집니다.
+</div>
+
+<div class="summary">
+  <div class="card red-card">
+    <div class="card-icon">💸</div>
+    <div class="label">이번 달 지출</div>
+    <div class="amount expense-color" id="totalExpense">0원</div>
+  </div>
+  <div class="card">
+    <div class="card-icon">🎯</div>
+    <div class="label">월 예산</div>
+    <div class="amount balance-color" id="totalBudget">미설정</div>
+  </div>
+</div>
+
+<div class="budget-bar-wrap">
+  <div class="budget-bar-top">
+    <div class="budget-bar-label">잔여 예산</div>
+    <div class="budget-bar-remain" id="remainBudget">—</div>
+  </div>
+  <div class="budget-bg"><div class="budget-fill" id="budgetFill" style="width:0%"></div></div>
+  <div class="budget-sub">
+    <span id="budgetUsedPct">예산을 설정해주세요</span>
+    <span id="budgetUsedAmt"></span>
+  </div>
+  <div class="budget-edit-row">
+    <input class="budget-input" type="number" id="budgetInput" placeholder="이번 달 예산 (원)" inputmode="numeric" />
+    <button class="btn-budget" id="btnBudget">설정</button>
+  </div>
+</div>
+
+<div class="view-tabs">
+  <button class="view-tab active" data-view="add">➕ 추가</button>
+  <button class="view-tab" data-view="capture">📷 캡쳐</button>
+  <button class="view-tab" data-view="chart">📊 차트</button>
+  <button class="view-tab" data-view="cal">📅 달력</button>
+  <button class="view-tab" data-view="list">📋 내역</button>
+</div>
+
+<!-- ➕ 추가 -->
+<div class="view-panel active" id="panel-add">
+  <div class="section">
+    <div class="form-card">
+      <div class="form-row">
+        <div class="field-wrap">
+          <div class="field-label">카테고리</div>
+          <div class="select-wrap"><select id="category"></select></div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field-wrap">
+          <div class="field-label">내용</div>
+          <input type="text" id="desc" placeholder="예: 스타벅스 아이스 라떼" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field-wrap">
+          <div class="field-label">금액</div>
+          <input type="number" id="amount" placeholder="금액 (원)" inputmode="numeric" />
+        </div>
+        <div class="field-wrap">
+          <div class="field-label">날짜</div>
+          <input type="date" id="entryDate" />
+        </div>
+      </div>
+      <button class="btn-add" id="btnAdd">추가하기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 📷 캡쳐 -->
+<div class="view-panel" id="panel-capture">
+  <div class="section">
+    <div class="form-card capture-card">
+      <p class="capture-help">카드·페이 <b>사용내역 캡쳐</b>를 올리면 글자를 읽어 여러 건을 한 번에 추가해요. (수입·입금은 자동 제외)</p>
+      <label for="capFile" class="upload-btn">📷 캡쳐 선택</label>
+      <input id="capFile" type="file" accept="image/*" hidden />
+      <div id="capPreview" class="cap-preview empty"><span>고른 캡쳐가 여기 보여요</span></div>
+      <button id="capOcrBtn" class="btn-add" hidden>🔍 글자 읽기 (OCR)</button>
+      <div id="capStatus" class="cap-status" hidden></div>
+      <div id="capEditor" class="cap-editor" hidden></div>
+    </div>
+  </div>
+</div>
+
+<!-- 📊 차트 -->
+<div class="view-panel" id="panel-chart">
+  <div class="section">
+    <div class="chart-card">
+      <div class="section-title">카테고리별 지출</div>
+      <div class="chart-wrap"><canvas id="myChart"></canvas></div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title">상세 내역</div>
+    <div class="cat-list" id="catList"></div>
+  </div>
+</div>
+
+<!-- 📅 달력 -->
+<div class="view-panel" id="panel-cal">
+  <div class="cal-wrap">
+    <div class="cal-dow"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>
+    <div class="cal-grid" id="calGrid"></div>
+  </div>
+  <div class="day-detail" id="dayDetail" style="display:none">
+    <div class="day-detail-title" id="dayDetailTitle"></div>
+    <div class="entry-list" id="dayEntryList"></div>
+  </div>
+</div>
+
+<!-- 📋 내역 -->
+<div class="view-panel" id="panel-list">
+  <div class="section">
+    <div class="section-title">전체 내역</div>
+    <div class="entry-list" id="entryList"></div>
+  </div>
+</div>
+
+<!-- 수정 모달 -->
+<div class="edit-modal-overlay" id="editModalOverlay">
+  <div class="edit-modal">
+    <div class="edit-modal-title"><span>내역 수정</span><button class="modal-close" id="editClose">✕</button></div>
+    <div class="edit-field">
+      <label>카테고리</label>
+      <div class="select-wrap"><select id="editCategory"></select></div>
+    </div>
+    <div class="edit-field"><label>내용</label><input type="text" id="editDesc" placeholder="내용" /></div>
+    <div class="edit-field"><label>금액</label><input type="number" id="editAmount" placeholder="금액 (원)" inputmode="numeric" /></div>
+    <div class="edit-field"><label>날짜</label><input type="date" id="editDate" /></div>
+    <div class="edit-btn-row">
+      <button class="btn-delete" id="btnDelete">🗑 삭제</button>
+      <button class="btn-save" id="btnSaveEdit">저장하기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 카테고리 상세 모달 -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title"><span id="modalTitle"></span><button class="modal-close" id="modalClose">✕</button></div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
