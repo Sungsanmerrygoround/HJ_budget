@@ -19,11 +19,14 @@ let activeView = "add";
 let editingIndex = -1;
 let chartInstance = null;
 let capItems = []; // 캡쳐로 인식한 임시 항목들
+let learnMap = {}; // 학습형 분류: normalize(가맹점) -> 카테고리
 
 // ── Firebase 연결 (설정됐을 때만) ──
 let getUser = () => null;
 let loadMonth = null;
 let saveMonth = null;
+let loadMerchantMap = null;
+let saveMerchantRule = null;
 
 if (isConfigured) {
   const auth = await import("./auth.js");
@@ -31,9 +34,40 @@ if (isConfigured) {
   getUser = auth.getUser;
   loadMonth = store.loadMonth;
   saveMonth = store.saveMonth;
+  loadMerchantMap = store.loadMerchantMap;
+  saveMerchantRule = store.saveMerchantRule;
   await auth.autoSignIn(); // 가족 공용 계정 자동 로그인
+  try {
+    if (getUser()) learnMap = await loadMerchantMap(getUser().uid); // 학습된 분류 불러오기
+  } catch (e) {
+    console.warn("학습 데이터 로드 실패", e);
+  }
 } else {
   document.querySelector("#config-banner").hidden = false;
+}
+
+// 가맹점 이름 정규화 (대소문자·공백·기호 제거 → OCR 변형에 덜 민감)
+function normMerchant(s) {
+  return String(s || "").toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
+}
+
+// 가맹점 → 카테고리: 학습된 게 있으면 우선, 없으면 규칙 기반
+function smartCategory(merchant) {
+  return learnMap[normMerchant(merchant)] || categorize(merchant);
+}
+
+// 사용자가 정한 카테고리를 학습(기억)합니다.
+async function rememberRule(merchant, category) {
+  const key = normMerchant(merchant);
+  if (!key) return;
+  learnMap[key] = category;
+  if (saveMerchantRule && getUser()) {
+    try {
+      await saveMerchantRule(getUser().uid, key, category);
+    } catch (e) {
+      console.warn("학습 저장 실패", e);
+    }
+  }
 }
 
 // ── 도우미 ──
@@ -354,6 +388,7 @@ async function saveEdit() {
   }
   cachedEntries[editingIndex] = { ...cachedEntries[editingIndex], desc, amount, category, date: newDate };
   await saveData();
+  rememberRule(desc, category); // 이 가맹점의 카테고리를 학습
   closeEditModal();
   render();
 }
@@ -418,7 +453,7 @@ function setupCapture() {
       const { expenses, excludedIncome } = parseTransactions(text);
       capItems = expenses.map((e) => ({
         desc: e.merchant,
-        category: categorize(e.merchant),
+        category: smartCategory(e.merchant), // 학습된 분류 우선
         amount: e.amount,
         dateISO: e.date,
         time: e.time,
@@ -449,7 +484,10 @@ function setupCapture() {
     const row = ev.target.closest(".cap-row");
     if (!row) return;
     const i = Number(row.dataset.i);
-    if (ev.target.classList.contains("cap-cat")) capItems[i].category = ev.target.value;
+    if (ev.target.classList.contains("cap-cat")) {
+      capItems[i].category = ev.target.value;
+      rememberRule(capItems[i].desc, ev.target.value); // 고친 분류를 학습
+    }
   });
   capEditor.addEventListener("click", (ev) => {
     if (ev.target.classList.contains("cap-del")) {

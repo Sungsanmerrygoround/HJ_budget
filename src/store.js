@@ -39,3 +39,20 @@ export async function saveMonth(uid, year, month, { entries, budget }) {
     budget: budget || 0,
   });
 }
+
+// ── 학습형 자동분류: 가맹점 → 카테고리 기억 ──
+// 위치: users/{uid}/meta/merchantMap  문서의 map 필드 { 가맹점키: 카테고리 }
+function merchantMapRef(uid) {
+  return doc(db, "users", uid, "meta", "merchantMap");
+}
+
+/** 학습된 가맹점→카테고리 매핑 전체를 불러옵니다. */
+export async function loadMerchantMap(uid) {
+  const snap = await getDoc(merchantMapRef(uid));
+  return snap.exists() ? snap.data().map || {} : {};
+}
+
+/** 가맹점 하나의 카테고리를 학습(저장)합니다. (merge로 다른 키는 유지) */
+export async function saveMerchantRule(uid, key, category) {
+  await setDoc(merchantMapRef(uid), { map: { [key]: category } }, { merge: true });
+}
