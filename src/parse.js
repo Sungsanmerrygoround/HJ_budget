@@ -46,10 +46,9 @@ export function parseTransactions(rawText) {
   const now = new Date();
   let currentDate = toISO(now.getFullYear(), now.getMonth() + 1, now.getDate());
 
-  // 날짜 헤더가 등장하면, 그 위(상단 요약 영역)는 모두 무시한다.
-  const firstDateIdx = lines.findIndex((l) => l.includes("요일"));
-  const startIdx = firstDateIdx >= 0 ? firstDateIdx : 0;
-
+  // 주의: 예전엔 "첫 날짜 헤더 위는 전부 무시"했지만, 화면을 스크롤해 캡쳐하면
+  // 헤더가 위로 잘려 나가 실제 거래가 맨 위에 올 수 있다(그 거래까지 버려짐).
+  // 그래서 위치로 자르지 않고, 요약 줄은 아래의 SUMMARY_RE로만 걸러낸다.
   let lastTxn = null; // 직전에 추가한 지출 (잔액·시간을 붙여주려고)
   let expectBalance = false; // 직전 줄에서 거래금액을 처리해 "잔액 차례"인지
   let lastBalance = 0; // 마지막으로 확인한 잔액 값(잔액들은 서로 비슷한 크기로 뭉쳐 있음)
@@ -57,7 +56,7 @@ export function parseTransactions(rawText) {
   let ambiguousIdx = -1; // 부호 없이(=모호하게) 추가한 직전 지출의 expenses 내 위치(-1이면 없음)
   let ambiguousVal = 0; // 그 모호 지출의 금액(잔액 산수 검증용)
 
-  for (let idx = startIdx; idx < lines.length; idx++) {
+  for (let idx = 0; idx < lines.length; idx++) {
     const line = lines[idx];
 
     // 1) 날짜 구분선? "6월 7일 일요일"
