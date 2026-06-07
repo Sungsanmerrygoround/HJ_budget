@@ -123,6 +123,7 @@ async function saveData() {
 function changeYear(delta) {
   currentYear += delta;
   buildMonthTabs();
+  syncAddDate();
   loadData();
 }
 
@@ -138,6 +139,7 @@ function buildMonthTabs() {
     btn.onclick = () => {
       currentMonth = i;
       buildMonthTabs();
+      syncAddDate();
       loadData();
     };
     container.appendChild(btn);
@@ -222,7 +224,7 @@ function renderChart(entries) {
       plugins: {
         legend: {
           position: "right",
-          labels: { font: { size: 11, family: "Outfit, Noto Sans KR, sans-serif", weight: "500" }, color: "#6B7280", padding: 10, boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: "circle" },
+          labels: { font: { size: 11, family: "Outfit, Noto Sans KR, sans-serif", weight: "500" }, color: "#7A7396", padding: 10, boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: "circle" },
         },
         tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.parsed.toLocaleString("ko-KR")}원` } },
       },
@@ -260,7 +262,7 @@ function renderEntryList(entries) {
     .reverse()
     .map((e) => `
       <div class="entry-item" data-index="${e.realIndex}">
-        <div><div class="entry-desc">${esc(e.desc)} <span style="font-size:11px;color:var(--sub2)">[${e.category}]</span></div><div class="entry-meta">${e.date} · 탭해서 수정</div></div>
+        <div><div class="entry-desc">${esc(e.desc)} <span style="font-size:11px;color:var(--sub2)">[${esc(e.category)}]</span></div><div class="entry-meta">${esc(e.date)} · 탭해서 수정</div></div>
         <div class="entry-amt-expense">-${fmt(e.amount)}</div>
       </div>`)
     .join("");
@@ -275,27 +277,59 @@ async function addEntry() {
     alert("내용과 금액을 입력해주세요!");
     return;
   }
-  const dateVal = $("entryDate").value;
-  let date;
+  // 날짜: 보고 있는 달(currentMonth)로 고정하고, 고른 '일'만 사용 (월 불일치 방지)
   const d = new Date();
   const hm = `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
-  if (dateVal) {
-    const [, mm, dd] = dateVal.split("-");
-    date = `${parseInt(mm)}/${parseInt(dd)} ${hm}`;
-  } else {
-    date = `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+  const { last } = monthBounds();
+  const dateVal = $("entryDate").value;
+  let day = dateVal ? parseInt(dateVal.split("-")[2]) : d.getDate();
+  if (!day || isNaN(day)) day = d.getDate();
+  day = Math.min(Math.max(day, 1), last);
+  const date = `${currentMonth + 1}/${day} ${hm}`;
+
+  const entry = { category, desc, amount, date };
+
+  // 동시 사용 대비: 저장 직전 최신본을 받아 거기에 추가 (다른 사람 내역 유실 방지)
+  if (loadMonth && getUser()) {
+    try {
+      const fresh = await loadMonth(currentYear, currentMonth);
+      cachedEntries = fresh.entries;
+      cachedBudget = fresh.budget;
+    } catch (e) {
+      console.warn("최신본 조회 실패, 캐시에 추가", e);
+    }
   }
-  cachedEntries.push({ category, desc, amount, date });
+  cachedEntries.push(entry);
   await saveData();
   render();
   $("desc").value = "";
   $("amount").value = "";
-  setTodayDate();
+  syncAddDate();
 }
 
-function setTodayDate() {
+// 현재 보고 있는 월(currentYear/currentMonth)의 날짜 범위
+function monthBounds() {
+  const last = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const mm = String(currentMonth + 1).padStart(2, "0");
+  return {
+    min: `${currentYear}-${mm}-01`,
+    max: `${currentYear}-${mm}-${String(last).padStart(2, "0")}`,
+    last,
+  };
+}
+
+// 추가 폼의 날짜 입력을 "보고 있는 달"에 맞춰 동기화 (월 불일치 방지)
+function syncAddDate() {
+  const el = $("entryDate");
+  if (!el) return;
+  const { min, max } = monthBounds();
+  el.min = min;
+  el.max = max;
   const t = new Date();
-  $("entryDate").value = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+  const isRealThisMonth = currentYear === t.getFullYear() && currentMonth === t.getMonth();
+  el.value = isRealThisMonth
+    ? `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`
+    : min;
 }
 
 // ── 뷰 전환 ──
@@ -342,7 +376,7 @@ function renderCalendar(selectedDay) {
     $("dayEntryList").innerHTML = dayEntries
       .map((e) => `
         <div class="entry-item" data-index="${entries.indexOf(e)}">
-          <div><div class="entry-desc">${esc(e.desc)} <span style="font-size:11px;color:var(--sub2)">[${e.category}]</span></div><div class="entry-meta">${e.date} · 탭해서 수정</div></div>
+          <div><div class="entry-desc">${esc(e.desc)} <span style="font-size:11px;color:var(--sub2)">[${esc(e.category)}]</span></div><div class="entry-meta">${esc(e.date)} · 탭해서 수정</div></div>
           <div class="entry-amt-expense">-${fmt(e.amount)}</div>
         </div>`)
       .join("");
@@ -360,7 +394,7 @@ function openModal(cat) {
   $("modalBody").innerHTML =
     entries.length === 0
       ? '<div class="empty">내역이 없어요</div>'
-      : [...entries].reverse().map((e) => `<div class="detail-item"><div><div class="detail-desc">${esc(e.desc)}</div><div class="detail-meta">${e.date}</div></div><div class="detail-amt">-${fmt(e.amount)}</div></div>`).join("");
+      : [...entries].reverse().map((e) => `<div class="detail-item"><div><div class="detail-desc">${esc(e.desc)}</div><div class="detail-meta">${esc(e.date)}</div></div><div class="detail-amt">-${fmt(e.amount)}</div></div>`).join("");
   $("modalOverlay").classList.add("open");
 }
 
@@ -372,10 +406,14 @@ function openEditModal(index) {
   $("editCategory").value = e.category;
   $("editDesc").value = e.desc;
   $("editAmount").value = e.amount;
+  // 날짜 입력 범위를 보고 있는 달로 제한 (월 불일치 방지)
+  const { min, max } = monthBounds();
+  $("editDate").min = min;
+  $("editDate").max = max;
   try {
     const [datePart] = e.date.split(" ");
-    const [m, d] = datePart.split("/");
-    $("editDate").value = `${currentYear}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const [, d] = datePart.split("/");
+    $("editDate").value = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   } catch {
     $("editDate").value = "";
   }
@@ -391,13 +429,21 @@ async function saveEdit() {
     alert("내용과 금액을 입력해주세요!");
     return;
   }
-  let newDate = cachedEntries[editingIndex].date;
+  // 날짜: 보고 있는 달로 고정, 고른 '일'만 반영 (월 불일치 방지)
+  const oldDate = cachedEntries[editingIndex].date;
+  const timePart = oldDate.includes(" ") ? oldDate.split(" ")[1] : "00:00";
+  const { last } = monthBounds();
   const dateVal = $("editDate").value;
+  let day;
   if (dateVal) {
-    const [, mm, dd] = dateVal.split("-");
-    const timePart = newDate.includes(" ") ? newDate.split(" ")[1] : "00:00";
-    newDate = `${parseInt(mm)}/${parseInt(dd)} ${timePart}`;
+    day = parseInt(dateVal.split("-")[2]);
+  } else {
+    day = parseInt((oldDate.split(" ")[0] || "").split("/")[1]);
   }
+  if (!day || isNaN(day)) day = 1;
+  day = Math.min(Math.max(day, 1), last);
+  const newDate = `${currentMonth + 1}/${day} ${timePart}`;
+
   cachedEntries[editingIndex] = { ...cachedEntries[editingIndex], desc, amount, category, date: newDate };
   await saveData();
   rememberRule(desc, category); // 이 가맹점의 카테고리를 학습
@@ -428,6 +474,15 @@ async function saveBudget() {
   if (!val || val <= 0) {
     alert("예산을 올바르게 입력해주세요!");
     return;
+  }
+  // 예산만 바꾸므로, 동시 추가된 내역을 덮어쓰지 않도록 최신 내역을 먼저 받음
+  if (loadMonth && getUser()) {
+    try {
+      const fresh = await loadMonth(currentYear, currentMonth);
+      cachedEntries = fresh.entries;
+    } catch (e) {
+      console.warn("최신본 조회 실패", e);
+    }
   }
   cachedBudget = val;
   $("budgetInput").value = "";
@@ -606,10 +661,12 @@ function setupCapture() {
     capFile.value = "";
     capStatus.hidden = false;
     capStatus.textContent =
-      `✅ ${added}건 추가 완료!${skipped > 0 ? ` (중복 ${skipped}건 건너뜀)` : ""} '내역'·'차트'에서 확인하세요.`;
+      added > 0
+        ? `✅ ${added}건 추가 완료!${skipped > 0 ? ` (중복 ${skipped}건 건너뜀)` : ""} '내역'·'차트'에서 확인하세요.`
+        : `이미 다 추가된 내역이에요 (중복 ${skipped}건 건너뜀).`;
 
     await loadData(); // 현재 월 갱신
-    switchView("list");
+    if (added > 0) switchView("list");
   }
 }
 
@@ -662,7 +719,7 @@ function wireEvents() {
 fillCategorySelects();
 wireEvents();
 buildMonthTabs();
-setTodayDate();
+syncAddDate();
 await loadData();
 
 // PWA: 서비스워커 등록 (폰 홈화면 설치 + 오프라인 캐시)
