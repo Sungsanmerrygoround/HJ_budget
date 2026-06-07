@@ -21,6 +21,10 @@ const TIME_RE = /\b(\d{1,2}):(\d{2})\b/; // 16:38
 // (실제 잔액은 보통 거래금액의 수십~수백 배라 4배 기준은 매우 안전)
 const BALANCE_RATIO = 4;
 
+// 부호 없는 숫자가 "이미 확인된 잔액"의 이 비율 이상이면 잔액으로 본다.
+// (잔액들은 서로 0.x% 차이로 뭉쳐 있어, 0.8 기준이면 큰 지출[월세 등]과도 안전히 구분)
+const BALANCE_NEAR = 0.8;
+
 // 상단 요약/안내 줄(거래가 아님)
 const SUMMARY_RE = /(소비|지출|수입|지난달|이번\s?달|비해|평균|합계|총\s?지출|더\s?쓰|덜\s?쓰|모으|남은)/;
 
@@ -46,6 +50,8 @@ export function parseTransactions(rawText) {
 
   let lastTxn = null; // 직전에 추가한 지출 (잔액·시간을 붙여주려고)
   let expectBalance = false; // 직전 줄에서 거래금액을 처리해 "잔액 차례"인지
+  let lastBalance = 0; // 마지막으로 확인한 잔액 값(잔액들은 서로 비슷한 크기로 뭉쳐 있음)
+  let pendingMerchant = ""; // 금액 줄에 가맹점 글자가 없을 때 쓸, 앞서 모아둔 가맹점명
 
   for (let idx = startIdx; idx < lines.length; idx++) {
     const line = lines[idx];
@@ -55,6 +61,7 @@ export function parseTransactions(rawText) {
       currentDate = parseDateHeader(line, now) ?? currentDate;
       lastTxn = null;
       expectBalance = false;
+      pendingMerchant = "";
       continue;
     }
 
@@ -68,6 +75,8 @@ export function parseTransactions(rawText) {
     if (!m) {
       // 숫자가 없는 줄: 시간만 있는 줄이면 직전 거래에 시간 붙이기
       if (hasTime && lastTxn && !lastTxn.time) lastTxn.time = fmtTime(timeM);
+      // 그 외 글자 줄은 가맹점명 후보로 모아둔다(다음 금액 줄에 이름이 없을 때 사용)
+      else if (!hasTime) addPendingMerchant(cleanMerchant(line));
       continue;
     }
 
@@ -82,6 +91,7 @@ export function parseTransactions(rawText) {
       excludedIncome++;
       lastTxn = null;
       expectBalance = true;
+      pendingMerchant = ""; // 수입 가맹점명이 다음 지출로 새지 않도록 비움
       continue;
     }
     if (isMinus(sign)) {
@@ -95,8 +105,21 @@ export function parseTransactions(rawText) {
       consumeBalance();
       continue;
     }
-    // (b) 직전에 거래금액을 추가했고, 이번 숫자가 그 금액보다 훨씬 큼 → 잔액
+    // (b) 거래(수입·지출)를 막 처리한 직후의, 가맹점 글자 없는 부호 없는 숫자 → 그 거래의 잔액
+    //     (수입 캐시백 등 lastTxn이 없는 경우의 잔액도 여기서 잡아 잔액 기준값을 세운다)
+    if (expectBalance && !hasMerchant) {
+      consumeBalance();
+      continue;
+    }
+    // (b-비율) 직전에 거래금액을 추가했고, 이번 숫자가 그 금액보다 훨씬 큼 → 잔액
     if (expectBalance && lastTxn && amount >= lastTxn.amount * BALANCE_RATIO) {
+      consumeBalance();
+      continue;
+    }
+    // (b2) 이미 확인된 잔액과 비슷한 크기(80% 이상) → 잔액.
+    //      잔액들은 서로 거의 같은 값으로 뭉쳐 있어, 그 크기대 숫자는 지출 금액일 수 없다.
+    //      (OCR이 줄 순서를 뒤섞어 잔액이 금액보다 먼저 읽혀도 안전하게 거른다)
+    if (lastBalance > 0 && amount >= lastBalance * BALANCE_NEAR) {
       consumeBalance();
       continue;
     }
@@ -114,15 +137,26 @@ export function parseTransactions(rawText) {
         expectBalance = false;
         return;
       }
-      const txn = { merchant: cleanMerchant(before), amount, date: currentDate, time: hasTime ? fmtTime(timeM) : null };
+      const lineMerchant = cleanMerchant(before);
+      const merchant = lineMerchant || pendingMerchant; // 줄에 이름 없으면 모아둔 이름 사용
+      const txn = { merchant, amount, date: currentDate, time: hasTime ? fmtTime(timeM) : null };
       expenses.push(txn);
       lastTxn = txn;
       expectBalance = true; // 이 거래의 잔액이 곧 따라올 것
+      pendingMerchant = ""; // 사용했든 아니든 다음 거래로 새지 않게 비움
     }
     function consumeBalance() {
       // 잔액 줄에 시간이 있으면 직전 거래에 시간을 붙여준다
       if (hasTime && lastTxn && !lastTxn.time) lastTxn.time = fmtTime(timeM);
+      // 잔액 줄에 가맹점 글자가 묻어 있으면 가맹점명 후보로 모아둔다
+      addPendingMerchant(cleanMerchant(before));
+      lastBalance = amount; // 잔액 크기 기준을 갱신
       expectBalance = false;
+    }
+    function addPendingMerchant(text) {
+      const t = (text || "").replace(/\b\d{1,2}:\d{2}\b/g, "").trim();
+      if (!t || !/[가-힣A-Za-z]/.test(t)) return; // 글자가 있어야 가맹점 후보
+      pendingMerchant = pendingMerchant ? `${pendingMerchant} ${t}` : t;
     }
   }
 
