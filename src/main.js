@@ -36,9 +36,9 @@ if (isConfigured) {
   saveMonth = store.saveMonth;
   loadMerchantMap = store.loadMerchantMap;
   saveMerchantRule = store.saveMerchantRule;
-  await auth.autoSignIn(); // 가족 공용 계정 자동 로그인
+  await auth.autoSignIn(); // 익명 자동 로그인 (가족 공용)
   try {
-    if (getUser()) learnMap = await loadMerchantMap(getUser().uid); // 학습된 분류 불러오기
+    if (getUser()) learnMap = await loadMerchantMap(); // 학습된 분류 불러오기
   } catch (e) {
     console.warn("학습 데이터 로드 실패", e);
   }
@@ -63,7 +63,7 @@ async function rememberRule(merchant, category) {
   learnMap[key] = category;
   if (saveMerchantRule && getUser()) {
     try {
-      await saveMerchantRule(getUser().uid, key, category);
+      await saveMerchantRule(key, category);
     } catch (e) {
       console.warn("학습 저장 실패", e);
     }
@@ -93,7 +93,7 @@ async function loadData() {
   }
   showLoading(true);
   try {
-    const data = await loadMonth(getUser().uid, currentYear, currentMonth);
+    const data = await loadMonth(currentYear, currentMonth);
     cachedEntries = data.entries;
     cachedBudget = data.budget;
   } catch (e) {
@@ -105,11 +105,11 @@ async function loadData() {
 
 async function saveData() {
   if (!saveMonth || !getUser()) {
-    alert("로그인이 필요해요. 새로고침해보세요.");
+    alert("아직 연결 중이에요. 잠시 후 다시 시도하세요.");
     return;
   }
   try {
-    await saveMonth(getUser().uid, currentYear, currentMonth, {
+    await saveMonth(currentYear, currentMonth, {
       entries: cachedEntries,
       budget: cachedBudget,
     });
@@ -537,9 +537,8 @@ function setupCapture() {
 
   async function importCaptured() {
     if (capItems.length === 0) return;
-    const uid = getUser()?.uid;
-    if (!uid) {
-      alert("로그인이 필요해요. 새로고침해보세요.");
+    if (!getUser()) {
+      alert("아직 연결 중이에요. 잠시 후 다시 시도하세요.");
       return;
     }
     showLoading(true);
@@ -567,7 +566,7 @@ function setupCapture() {
     try {
       for (const key in groups) {
         const g = groups[key];
-        const data = await loadMonth(uid, g.year, g.month);
+        const data = await loadMonth(g.year, g.month);
         const existing = data.entries || [];
         const seen = new Set(existing.map(keyOf)); // 이미 저장된 항목들
         const toAdd = [];
@@ -581,7 +580,7 @@ function setupCapture() {
           toAdd.push(e);
         }
         if (toAdd.length) {
-          await saveMonth(uid, g.year, g.month, { entries: [...existing, ...toAdd], budget: data.budget || 0 });
+          await saveMonth(g.year, g.month, { entries: [...existing, ...toAdd], budget: data.budget || 0 });
           added += toAdd.length;
         }
       }

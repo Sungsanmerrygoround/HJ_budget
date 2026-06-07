@@ -22,7 +22,7 @@ API 키·서버·결제 없이 **전부 무료**로 동작합니다.
 | 📊 **차트** | 카테고리별 지출 도넛 차트 + 막대 상세 |
 | 📅 **달력 뷰** | 일별 소비 금액을 달력에서 한눈에 |
 | ✏️ **수정/삭제** | 내역 탭해서 카테고리·내용·금액·날짜 수정 |
-| ☁️ **클라우드 동기화** | 가족 공용 계정 자동 로그인 → 폰·PC 어디서나 같은 데이터 |
+| ☁️ **클라우드 동기화** | 접속만 하면 익명 자동 로그인 → 가족 모두 폰·PC 어디서나 같은 데이터 |
 | 📱 **PWA** | 홈 화면에 앱처럼 설치 + 기본 오프라인 |
 
 ---
@@ -72,40 +72,29 @@ snap-budget/
    ├─ ocr.js               # Tesseract.js OCR
    ├─ parse.js             # OCR 원문 → 거래 구조화 (정규식)
    ├─ categorize.js        # 카테고리 정의 + 자동 분류
-   ├─ store.js             # Firestore 월별 저장/조회
-   ├─ auth.js              # 가족 공용 계정 자동 로그인
+   ├─ store.js             # Firestore 월별 저장/조회 (가족 공용 경로)
+   ├─ auth.js              # 익명 자동 로그인
    ├─ firebase.js          # Firebase 초기화
-   └─ firebase-config.example.js  # 설정 템플릿 (실제 키는 gitignore)
+   └─ firebase-config.js   # Firebase 설정 (apiKey는 공개 식별자라 커밋 OK)
 ```
 
 ---
 
-## 🚀 직접 실행하기
+## 🚀 직접 만들어 쓰려면
 
 1. 이 저장소를 클론
 2. [Firebase 콘솔](https://console.firebase.google.com)에서 프로젝트 생성
-   - **Authentication → 이메일/비밀번호** 사용 설정
-   - **Firestore Database** 생성 후 아래 규칙 게시:
-     ```
-     rules_version = '2';
-     service cloud.firestore {
-       match /databases/{database}/documents {
-         match /users/{uid}/{document=**} {
-           allow read, write: if request.auth != null && request.auth.uid == uid;
-         }
-       }
-     }
-     ```
-3. `src/firebase-config.example.js`를 복사해 `src/firebase-config.js`로 만들고 값 채우기
-   (Firebase 웹앱 설정값 + 자동 로그인용 가족 계정 이메일/비번)
+   - **Authentication → 로그인 방법 → 익명(Anonymous)** 사용 설정
+   - **Firestore Database** 생성 후 `firestore.rules`의 규칙을 붙여넣고 게시
+3. `src/firebase-config.js`의 값을 본인 Firebase 웹앱 설정으로 교체
 4. 정적 서버로 실행 (ES Module은 `file://`에서 막힘):
    ```bash
    npx serve -p 3000     # 또는: python -m http.server 3000
    ```
-5. 브라우저에서 `http://localhost:3000`
+5. 브라우저에서 `http://localhost:3000` → 접속하면 익명 로그인되어 바로 사용
 
-> 🔒 `src/firebase-config.js`에는 가족 계정 비밀번호가 들어가므로 **`.gitignore`로 커밋에서 제외**됩니다.
-> 공개 저장소에는 `firebase-config.example.js` 템플릿만 올라갑니다.
+> 🔒 `firebaseConfig`의 apiKey는 비밀이 아니라 공개 식별자입니다. 보안은 Firestore 규칙(로그인된 요청만 허용)이 담당합니다.
+> 가족끼리 공용 데이터를 공유하는 구조라, 접속한 사람은 같은 가계부를 함께 봅니다.
 
 ### GitHub Pages 배포 시
 - Firebase **Authentication → 설정 → 승인된 도메인**에 `<username>.github.io` 추가
@@ -116,8 +105,8 @@ snap-budget/
 
 - 브라우저 OCR(Tesseract.js)로 한글 거래내역을 인식하고, **정규식으로 노이즈를 걸러 구조화**하는 과정
 - OCR은 완벽하지 않으므로 **"사람이 확인·수정하는 관문"** 을 둬 데이터 품질을 확보
-- Firestore 보안 규칙으로 **본인 데이터만 접근**하도록 설계
-- 클라이언트 비밀(가족 계정)은 완벽히 숨길 수 없으므로 **gitignore + 템플릿** 전략으로 분리
+- **익명 로그인 + Firestore 규칙**으로, 별도 가입 없이도 "로그인된 요청만 허용"해 가족 공용 데이터를 보호
+- apiKey는 비밀이 아니라는 점, 보안은 클라이언트 키가 아니라 **서버 규칙**에서 온다는 점
 
 ---
 

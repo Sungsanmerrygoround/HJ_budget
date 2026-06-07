@@ -9,7 +9,3 @@ Thumbs.db
 
 # Firebase 로컬 캐시 (나중에)
 .firebase/
-
-# 🔑 진짜 설정 + 가족 계정 비밀번호 (GitHub에 올리지 않음)
-# 남들은 firebase-config.example.js 템플릿만 봅니다.
-src/firebase-config.js

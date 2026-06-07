@@ -1,16 +1,15 @@
-// auth.js — 로그인 화면 없이 "가족 공용 계정"으로 자동 로그인합니다.
+// auth.js — 로그인 화면 없이 "익명 로그인"으로 자동 연결합니다.
 //
-// 흐름:
-//  - 앱이 켜지면 firebase-config.js의 familyAccount로 자동 로그인 시도
-//  - 그 계정이 아직 없으면(처음 실행) 자동으로 만들어 줌
-//  - 가족이 같은 계정을 쓰므로 어느 기기에서나 같은 가계부가 동기화됨
+// 왜 익명 로그인?
+//  - 가족 누구나 URL만 열면 바로 사용 (로그인 화면 없음)
+//  - 그래도 Firestore 규칙에서 "로그인된 요청만 허용"을 걸 수 있어,
+//    아무 스크립트나 DB에 막 접근하는 건 막아줌
+//  - 데이터는 가족 공용 경로(budgets/년_월)에 함께 저장돼 모두가 같은 가계부를 봄
 
 import { auth } from "./firebase.js";
-import { familyAccount } from "./firebase-config.js";
 import {
   onAuthStateChanged,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
+  signInAnonymously,
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 
 let currentUser = null;
@@ -28,42 +27,24 @@ export function onUserChange(fn) {
 
 onAuthStateChanged(auth, (user) => {
   currentUser = user;
-  renderUserBar(user);
+  renderBar(user);
   listeners.forEach((fn) => fn(user));
 });
 
-/**
- * 가족 계정으로 자동 로그인. 계정이 없으면 만들어서 로그인.
- * @returns {Promise<import('firebase/auth').User|null>}
- */
+/** 익명으로 자동 로그인합니다. */
 export async function autoSignIn() {
-  const { email, password } = familyAccount;
   try {
-    const cred = await signInWithEmailAndPassword(auth, email, password);
+    const cred = await signInAnonymously(auth);
     return cred.user;
   } catch (err) {
-    // 계정이 아직 없는 경우 → 처음 한 번 만들어 줍니다.
-    try {
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
-      console.log("👨‍👩‍👧 가족 계정을 새로 만들었어요.");
-      return cred.user;
-    } catch (err2) {
-      if (err2.code === "auth/email-already-in-use") {
-        // 계정은 있는데 비밀번호가 틀린 경우
-        console.error("⚠️ 가족 계정 비밀번호가 맞지 않아요. firebase-config.js를 확인하세요.");
-      } else {
-        console.error("⚠️ 자동 로그인 실패:", err2.code || err2);
-      }
-      setBar("⚠️ 로그인 실패 — 설정을 확인하세요");
-      return null;
-    }
+    console.error("⚠️ 자동 연결 실패:", err.code || err);
+    setBar("⚠️ 연결 실패 — 새로고침 해보세요");
+    return null;
   }
 }
 
-// 상단 바에 동기화 상태를 표시 (로그인/로그아웃 버튼은 없음)
-function renderUserBar(user) {
-  if (user) setBar("☁️ 동기화됨 · 가족 계정");
-  else setBar("");
+function renderBar(user) {
+  setBar(user ? "☁️ 가족과 동기화 중" : "");
 }
 
 function setBar(text) {
