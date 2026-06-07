@@ -12,10 +12,10 @@ export const CAT_ICONS = {
   교통비: "🚇", 식비: "🥗", 고정비: "🏠", 데이트: "💑", 기타: "📦",
 };
 
-// 차트/막대에 쓰는 카테고리별 색 (CATS와 같은 순서)
+// 차트/막대에 쓰는 카테고리별 색 (CATS와 같은 순서) — 파스텔 톤
 export const CAT_COLORS = [
-  "#4F46E5", "#7C3AED", "#DB2777", "#EA580C", "#059669",
-  "#65A30D", "#DC2626", "#D97706", "#64748B",
+  "#F6A6B2", "#A99BF7", "#F4B6E0", "#7FD1C1", "#8FC4F2",
+  "#F7C59F", "#B8A9E8", "#F58BA8", "#C3BEDA",
 ];
 
 export function catColor(cat) {

@@ -1,13 +1,13 @@
 {
-  "name": "snap-budget",
-  "short_name": "가계부",
-  "description": "사용내역 캡쳐 한 장으로 입력하는 가계부",
+  "name": "한준♥이현 가계부",
+  "short_name": "한준♥이현",
+  "description": "사용내역 캡쳐 한 장으로 입력하는 우리 가계부",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#F5F4F0",
-  "theme_color": "#4F46E5",
+  "background_color": "#F7F5FF",
+  "theme_color": "#8B7DF2",
   "icons": [
     {
       "src": "icon.svg",

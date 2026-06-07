@@ -165,7 +165,12 @@ function render() {
     remainEl.textContent = fmt(Math.max(remain, 0));
     remainEl.style.color = remain < 0 ? "var(--red)" : "var(--primary)";
     fill.style.width = pct + "%";
-    fill.style.background = pct >= 90 ? "var(--red)" : pct >= 70 ? "#F97316" : "var(--primary)";
+    fill.style.background =
+      pct >= 90
+        ? "var(--red)"
+        : pct >= 70
+        ? "#F4A98F"
+        : "linear-gradient(90deg, var(--primary), var(--mint))";
     $("budgetUsedPct").textContent = `${pct}% 사용`;
     $("budgetUsedAmt").textContent = remain < 0 ? `${fmt(-remain)} 초과` : `${fmt(remain)} 남음`;
   } else {
@@ -191,9 +196,9 @@ function renderChart(entries) {
     chartInstance = null;
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     ctx.font = "500 13px Outfit, Noto Sans KR, sans-serif";
-    ctx.fillStyle = "#9CA3AF";
+    ctx.fillStyle = "#A9A2C2";
     ctx.textAlign = "center";
-    ctx.fillText("지출 내역이 없어요", ctx.canvas.width / 2, 100);
+    ctx.fillText("이번 달은 아직 깨끗해요 ✨", ctx.canvas.width / 2, 100);
     return;
   }
   const filtered = CATS.map((c, i) => ({ label: c, value: totals[i], color: CAT_COLORS[i] })).filter((d) => d.value > 0);
@@ -232,7 +237,7 @@ function renderCatList(entries) {
     .filter((r) => r.total > 0)
     .sort((a, b) => b.total - a.total);
   if (rows.length === 0) {
-    container.innerHTML = '<div class="empty">지출 내역이 없어요</div>';
+    container.innerHTML = '<div class="empty">이번 달은 아직 깨끗해요 ✨</div>';
     return;
   }
   container.innerHTML = rows
@@ -247,7 +252,7 @@ function renderCatList(entries) {
 function renderEntryList(entries) {
   const container = $("entryList");
   if (entries.length === 0) {
-    container.innerHTML = '<div class="empty">아직 내역이 없어요</div>';
+    container.innerHTML = '<div class="empty">아직 기록이 없어요 💜<br>오늘 첫 소비를 담아볼까요?</div>';
     return;
   }
   container.innerHTML = entries
