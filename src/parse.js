@@ -54,6 +54,8 @@ export function parseTransactions(rawText) {
   let expectBalance = false; // 직전 줄에서 거래금액을 처리해 "잔액 차례"인지
   let lastBalance = 0; // 마지막으로 확인한 잔액 값(잔액들은 서로 비슷한 크기로 뭉쳐 있음)
   let pendingMerchant = ""; // 금액 줄에 가맹점 글자가 없을 때 쓸, 앞서 모아둔 가맹점명
+  let ambiguousIdx = -1; // 부호 없이(=모호하게) 추가한 직전 지출의 expenses 내 위치(-1이면 없음)
+  let ambiguousVal = 0; // 그 모호 지출의 금액(잔액 산수 검증용)
 
   for (let idx = startIdx; idx < lines.length; idx++) {
     const line = lines[idx];
@@ -64,6 +66,7 @@ export function parseTransactions(rawText) {
       lastTxn = null;
       expectBalance = false;
       pendingMerchant = "";
+      ambiguousIdx = -1;
       continue;
     }
 
@@ -94,10 +97,14 @@ export function parseTransactions(rawText) {
       lastTxn = null;
       expectBalance = true;
       pendingMerchant = ""; // 수입 가맹점명이 다음 지출로 새지 않도록 비움
+      ambiguousIdx = -1;
       continue;
     }
     if (isMinus(sign)) {
-      addExpense();
+      // 부호 있는 '확실한' 금액이 왔다. 직전에 부호 없이 넣은 모호 항목이
+      // 사실은 이 거래의 잔액이었는지 산수로 검증해 되돌린다.
+      reconcileAmbiguous(amount);
+      addExpense(false);
       continue;
     }
 
@@ -125,16 +132,16 @@ export function parseTransactions(rawText) {
       consumeBalance();
       continue;
     }
-    // (c) 가맹점 글자가 있는 부호 없는 숫자 → 부호를 놓친 지출로 인정
+    // (c) 가맹점 글자가 있는 부호 없는 숫자 → 부호를 놓친 지출로 인정(단, '모호'하다고 표시)
     if (hasMerchant) {
-      addExpense();
+      addExpense(true);
       continue;
     }
     // (d) 부호도, 시간도, 가맹점도, 기다리던 잔액도 아닌 외톨이 숫자 → 안전하게 버림(잔액/요약일 확률 높음)
     expectBalance = false;
 
     // ── 내부 헬퍼 ──
-    function addExpense() {
+    function addExpense(ambiguous) {
       if (amount === 0) {
         expectBalance = false;
         return;
@@ -146,6 +153,20 @@ export function parseTransactions(rawText) {
       lastTxn = txn;
       expectBalance = true; // 이 거래의 잔액이 곧 따라올 것
       pendingMerchant = ""; // 사용했든 아니든 다음 거래로 새지 않게 비움
+      // 부호 없이(모호하게) 넣은 항목이면, 나중에 잔액으로 판명될 수 있게 위치를 기억
+      ambiguousIdx = ambiguous ? expenses.length - 1 : -1;
+      ambiguousVal = ambiguous ? amount : 0;
+    }
+    // 부호 있는 확실한 금액 nextAmount가 왔을 때, 직전 모호 항목이
+    // 사실 이 거래의 잔액이었는지 "이전잔액 − 모호값 == 금액"으로 검증해 되돌린다.
+    function reconcileAmbiguous(nextAmount) {
+      if (ambiguousIdx >= 0 && lastBalance > 0 && Math.abs(lastBalance - ambiguousVal) === nextAmount) {
+        expenses.splice(ambiguousIdx, 1); // 모호 항목은 지출이 아니라 잔액이었음 → 제거
+        lastBalance = ambiguousVal; // 그게 진짜 잔액이므로 기준값 갱신
+        lastTxn = null;
+      }
+      ambiguousIdx = -1; // 부호 있는 금액이 온 시점에 모호 창은 닫힌다
+      ambiguousVal = 0;
     }
     function consumeBalance() {
       // 잔액 줄에 시간이 있으면 직전 거래에 시간을 붙여준다
@@ -154,6 +175,7 @@ export function parseTransactions(rawText) {
       addPendingMerchant(cleanMerchant(before));
       lastBalance = amount; // 잔액 크기 기준을 갱신
       expectBalance = false;
+      ambiguousIdx = -1; // 모호 항목 뒤에 정상 잔액이 왔다 = 그 항목은 진짜 지출로 확정
     }
     function addPendingMerchant(text) {
       const t = (text || "").replace(/\b\d{1,2}:\d{2}\b/g, "").trim();
