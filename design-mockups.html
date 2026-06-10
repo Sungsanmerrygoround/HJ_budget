@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>가계부 디자인 시안 — A vs C (개선판)</title>
+<link href="https://fonts.googleapis.com/css2?family=Jua&family=Outfit:wght@300;400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #1B1D27; font-family: 'Outfit','Noto Sans KR',sans-serif; padding: 36px 24px 60px; }
+  .page-title { color: #fff; font-family: 'Jua'; font-size: 28px; text-align: center; margin-bottom: 6px; }
+  .page-sub { color: #8b90a5; font-size: 13px; text-align: center; margin-bottom: 36px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 44px; justify-content: center; }
+  .mock { width: 390px; }
+  .mock-label { color: #fff; font-family: 'Jua'; font-size: 20px; margin-bottom: 5px; }
+  .mock-desc { color: #9aa0b5; font-size: 12.5px; line-height: 1.6; margin-bottom: 16px; min-height: 60px; }
+  .phone { width: 390px; height: 800px; border-radius: 40px; overflow: hidden; position: relative; box-shadow: 0 28px 70px rgba(0,0,0,0.55); border: 6px solid #2a2d3c; }
+  .screen { width: 100%; height: 100%; overflow: hidden; position: relative; }
+
+  /* ═══════════════ A — 글래스 가든 v2 ═══════════════ */
+  .a .screen {
+    background:
+      radial-gradient(460px 340px at 88% -6%, #FFD9EC 0%, transparent 62%),
+      radial-gradient(520px 400px at -12% 16%, #D7CCFF 0%, transparent 62%),
+      radial-gradient(460px 460px at 72% 82%, #CFF3E8 0%, transparent 58%),
+      linear-gradient(165deg, #F5F1FF 0%, #FDF3F8 100%);
+    padding: 26px 18px;
+  }
+  /* 떠다니는 장식 방울 */
+  .a .blob { position:absolute; border-radius:50%; background:rgba(255,255,255,0.35); border:1px solid rgba(255,255,255,0.6); backdrop-filter:blur(4px); pointer-events:none; }
+
+  .a .hd { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; position:relative; }
+  .a .hd .t { font-family:'Jua'; font-size:22px; color:#41365E; }
+  .a .hd .t em { font-style:normal; color:#F66E9C; }
+  .a .hd .y { display:flex; align-items:center; gap:8px; font-size:11.5px; font-weight:800; color:#6F628F; background:rgba(255,255,255,0.6); border:1px solid rgba(255,255,255,0.9); backdrop-filter:blur(8px); padding:7px 12px; border-radius:999px; box-shadow:0 4px 14px rgba(120,100,180,0.12); }
+  .a .hd .y i { font-style:normal; font-size:9px; color:#B3A8CE; }
+
+  .a .months { display:flex; gap:6px; margin-bottom:16px; position:relative; }
+  .a .months span { font-size:11.5px; font-weight:700; padding:8px 14px; border-radius:999px; color:#9b91b8; background:rgba(255,255,255,0.5); border:1px solid rgba(255,255,255,0.8); backdrop-filter:blur(6px); }
+  .a .months .on { background:linear-gradient(135deg,#8B7DF2,#B79CFF); color:#fff; border-color:transparent; box-shadow:0 8px 20px rgba(139,125,242,0.45); }
+
+  .a .glass { background:rgba(255,255,255,0.58); backdrop-filter:blur(18px); border:1px solid rgba(255,255,255,0.95); border-top:1.5px solid rgba(255,255,255,1); border-radius:26px; box-shadow:0 14px 38px rgba(120,100,180,0.18), inset 0 1px 0 rgba(255,255,255,0.9); position:relative; }
+
+  .a .hero { padding:20px 20px 15px; margin-bottom:11px; }
+  .a .hero-top { display:flex; gap:18px; align-items:center; margin-bottom:11px; }
+  .a .gauge { width:124px; height:124px; flex-shrink:0; position:relative; }
+  .a .gauge svg { transform:rotate(-90deg); }
+  .a .gauge .c-bg { fill:none; stroke:rgba(139,125,242,0.14); stroke-width:11; }
+  .a .gauge .c-fg { fill:none; stroke:url(#agrad); stroke-width:11; stroke-linecap:round; }
+  .a .gauge .gtxt { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .a .gauge .gtxt b { font-family:'Jua'; font-size:26px; color:#41365E; }
+  .a .gauge .gtxt small { font-size:9.5px; font-weight:800; color:#A89BC8; letter-spacing:0.06em; margin-top:1px; }
+  .a .hero .lbl { font-size:10.5px; font-weight:800; letter-spacing:0.1em; color:#A89BC8; margin-bottom:4px; }
+  .a .hero .amt { font-family:'Jua'; font-size:30px; color:#41365E; margin-bottom:10px; text-shadow:0 2px 0 rgba(255,255,255,0.8); }
+  .a .hero .row { display:flex; justify-content:space-between; font-size:12px; color:#8E83AC; font-weight:600; padding:5.5px 0; border-top:1px dashed rgba(139,125,242,0.28); }
+  .a .hero .row b { color:#6C5CE7; }
+  .a .hero .row b.pink { color:#F66E9C; }
+  /* 주간 스파크라인 */
+  .a .week { display:flex; gap:7px; align-items:flex-end; height:46px; padding-top:10px; border-top:1px dashed rgba(139,125,242,0.28); }
+  .a .week .d { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .a .week .bar { width:100%; border-radius:6px 6px 3px 3px; background:linear-gradient(180deg,#C7BAFF,#8B7DF2); opacity:0.45; }
+  .a .week .d.on .bar { opacity:1; box-shadow:0 4px 10px rgba(139,125,242,0.4); }
+  .a .week .d span { font-size:8.5px; font-weight:800; color:#A89BC8; }
+  .a .week .d.on span { color:#6C5CE7; }
+
+  .a .chips { display:flex; gap:8px; margin-bottom:10px; }
+  .a .chip { flex:1; padding:12px 8px 11px; border-radius:20px; text-align:center; }
+  .a .chip .e { width:34px; height:34px; margin:0 auto 5px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:16px; }
+  .a .chip .n { font-size:9.5px; font-weight:800; color:#8E83AC; }
+  .a .chip .v { font-family:'Jua'; font-size:13px; color:#41365E; margin-top:1px; }
+  .a .chip .pct { font-size:8.5px; font-weight:800; margin-top:2px; }
+
+  .a .sec { display:flex; justify-content:space-between; align-items:center; margin:0 4px 8px; }
+  .a .sec b { font-size:10.5px; font-weight:800; letter-spacing:0.1em; color:#A89BC8; }
+  .a .sec a { font-size:10.5px; font-weight:800; color:#8B7DF2; text-decoration:none; }
+  .a .li { display:flex; align-items:center; gap:12px; padding:11px 15px; margin-bottom:7px; border-radius:20px; }
+  .a .li .ic { width:38px; height:38px; border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:17px; box-shadow:inset 0 0 0 1px rgba(255,255,255,0.8); }
+  .a .li .nm { font-size:12.5px; font-weight:800; color:#41365E; }
+  .a .li .mt { font-size:10px; color:#A89BC8; font-weight:600; margin-top:1px; }
+  .a .li .am { margin-left:auto; font-family:'Jua'; font-size:14px; color:#F66E9C; }
+
+  .a .nav { position:absolute; left:20px; right:20px; bottom:18px; display:flex; justify-content:space-around; align-items:center; padding:8px; border-radius:999px; background:rgba(255,255,255,0.72); backdrop-filter:blur(22px); border:1px solid rgba(255,255,255,0.95); box-shadow:0 16px 40px rgba(120,100,180,0.3); }
+  .a .nav div { display:flex; flex-direction:column; align-items:center; gap:2px; width:48px; padding:6px 0; border-radius:18px; }
+  .a .nav span { font-size:18px; opacity:0.45; }
+  .a .nav small { font-size:8.5px; font-weight:800; color:#A89BC8; opacity:0.7; }
+  .a .nav .on { background:linear-gradient(135deg,#8B7DF2,#B79CFF); box-shadow:0 8px 18px rgba(139,125,242,0.45); }
+  .a .nav .on span { opacity:1; }
+  .a .nav .on small { color:#fff; opacity:1; }
+
+  /* ═══════════════ C — 벤토 마켓 v2 ═══════════════ */
+  .c .screen {
+    background:
+      linear-gradient(rgba(35,33,28,0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(35,33,28,0.045) 1px, transparent 1px),
+      #F7F4EC;
+    background-size: 22px 22px, 22px 22px, auto;
+    padding: 24px 16px;
+  }
+  .c .hd { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; padding:0 4px; }
+  .c .hd .t { font-family:'Jua'; font-size:23px; color:#23211C; }
+  .c .hd .t em { font-style:normal; color:#FF6B4A; }
+  .c .hd .y { font-size:11.5px; font-weight:800; color:#fff; background:#23211C; padding:7px 13px; border-radius:999px; box-shadow:3px 3px 0 #C9C2B0; }
+
+  .c .bento { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+  .c .cell { border-radius:18px; padding:13px 14px; border:2px solid #23211C; box-shadow:4px 4px 0 #23211C; background:#fff; position:relative; }
+  .c .cell.wide { grid-column:1 / -1; }
+  .c .k { font-size:10px; font-weight:800; letter-spacing:0.07em; margin-bottom:5px; color:#23211C; opacity:0.75; }
+  .c .sticker { position:absolute; top:-9px; right:10px; font-size:10px; font-weight:800; background:#FF6B4A; color:#fff; border:2px solid #23211C; padding:3px 9px; border-radius:999px; transform:rotate(3deg); box-shadow:2px 2px 0 #23211C; }
+
+  .c .spend { background:#FFD43B; display:flex; align-items:flex-end; justify-content:space-between; }
+  .c .spend .v { font-family:'Jua'; font-size:29px; color:#23211C; line-height:1.05; }
+  .c .spend .s { font-size:10.5px; font-weight:800; color:#7a6a1d; margin-top:5px; }
+  .c .spend .face { font-size:34px; transform:rotate(-6deg); }
+
+  .c .budget { background:#B7A6FF; }
+  .c .budget .v { font-family:'Jua'; font-size:21px; color:#23211C; }
+  .c .budget .v small { font-size:11px; font-weight:800; font-family:'Outfit','Noto Sans KR'; }
+  .c .track { height:14px; border-radius:99px; background:rgba(255,255,255,0.65); border:2px solid #23211C; overflow:hidden; margin:7px 0 6px; }
+  .c .track i { display:block; height:100%; width:21%; background:repeating-linear-gradient(135deg,#23211C 0 6px,#4a463c 6px 12px); }
+  .c .budget .s { font-size:10px; font-weight:800; color:#3d3370; }
+
+  .c .cam { background:#8FE3CF; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:4px; }
+  .c .cam .e { font-size:27px; transform:rotate(-5deg); }
+  .c .cam .n { font-family:'Jua'; font-size:14px; color:#23211C; }
+  .c .cam .s { font-size:9.5px; font-weight:800; color:#1d5b4b; }
+
+  .c .donut-cell { display:flex; gap:12px; align-items:center; }
+  .c .donut { width:86px; height:86px; border-radius:50%; flex-shrink:0; border:2px solid #23211C; background:conic-gradient(#FFD43B 0 35%, #B7A6FF 35% 55%, #8FE3CF 55% 68%, #FFA8C5 68% 80%, #EDE9DC 80% 100%); position:relative; }
+  .c .donut::after { content:'6월'; position:absolute; inset:22px; background:#fff; border:2px solid #23211C; border-radius:50%; display:flex; align-items:center; justify-content:center; font-family:'Jua'; font-size:13px; color:#23211C; }
+  .c .legend { flex:1; }
+  .c .cat-row { display:flex; align-items:center; gap:7px; font-size:11.5px; font-weight:800; color:#23211C; padding:3.5px 0; }
+  .c .cat-row .pct { margin-left:auto; font-family:'Jua'; font-size:12px; }
+  .c .dot { width:11px; height:11px; border-radius:4px; border:2px solid #23211C; flex-shrink:0; }
+
+  .c .recent { background:#fff; }
+  .c .li { display:flex; align-items:center; gap:10px; padding:6.5px 0; border-bottom:2px dashed #E3DECE; font-size:12px; font-weight:800; color:#23211C; }
+  .c .li:last-child { border-bottom:none; padding-bottom:2px; }
+  .c .li .e { width:30px; height:30px; border-radius:10px; border:2px solid #23211C; display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; }
+  .c .li .tg { font-size:8.5px; font-weight:800; border:1.5px solid #23211C; padding:1.5px 6px; border-radius:999px; margin-left:5px; background:#FFF3C4; }
+  .c .li .am { margin-left:auto; font-family:'Jua'; color:#FF6B4A; font-size:13px; }
+  .c .li .tm { font-size:9px; color:#9a937f; font-weight:700; }
+
+  .c .nav { position:absolute; left:14px; right:14px; bottom:14px; display:flex; justify-content:space-around; align-items:center; padding:10px 8px; border-radius:20px; background:#23211C; box-shadow:4px 4px 0 #C9C2B0; }
+  .c .nav div { display:flex; flex-direction:column; align-items:center; gap:2px; }
+  .c .nav span { font-size:17px; opacity:0.45; }
+  .c .nav small { font-size:8px; font-weight:800; color:#fff; opacity:0.4; }
+  .c .nav .on span { opacity:1; }
+  .c .nav .on small { opacity:1; color:#FFD43B; }
+  .c .nav .on { background:rgba(255,255,255,0.12); border-radius:14px; padding:4px 10px; }
+</style>
+</head>
+<body>
+
+<div class="page-title">디자인 시안 비교 — A vs C (개선판)</div>
+<div class="page-sub">폰트(Jua) 유지 · 동일한 6월 데이터 · 화면 비율 390×800</div>
+
+<div class="grid">
+
+  <!-- ═══════════ A v2 ═══════════ -->
+  <div class="mock a">
+    <div class="mock-label">A. 글래스 가든 v2 🪟</div>
+    <div class="mock-desc">개선점: ① 도넛 게이지를 둥근 끝 그라데이션 링으로 ② 히어로에 요일별 지출 미니 바차트 추가 ③ 카테고리 칩에 % 와 컬러 아이콘 배경 ④ 내비에 라벨 + 선택 그라데이션 ⑤ 유리 카드 깊이감(이중 광택 보더) 강화.</div>
+    <div class="phone"><div class="screen">
+      <div class="blob" style="width:90px;height:90px;top:330px;right:-30px"></div>
+      <div class="blob" style="width:54px;height:54px;top:120px;left:-18px"></div>
+
+      <div class="hd">
+        <div class="t">한준<em>♥</em>이현 가계부</div>
+        <div class="y"><i>◀</i> 2026 <i>▶</i></div>
+      </div>
+      <div class="months"><span>4월</span><span>5월</span><span class="on">6월</span><span>7월</span><span>8월</span></div>
+
+      <div class="glass hero">
+        <div class="hero-top">
+          <div class="gauge">
+            <svg width="124" height="124" viewBox="0 0 124 124">
+              <defs><linearGradient id="agrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#8B7DF2"/><stop offset="1" stop-color="#F66E9C"/>
+              </linearGradient></defs>
+              <circle class="c-bg" cx="62" cy="62" r="53"/>
+              <circle class="c-fg" cx="62" cy="62" r="53" stroke-dasharray="69.9 333" />
+            </svg>
+            <div class="gtxt"><b>21%</b><small>예산 사용</small></div>
+          </div>
+          <div style="flex:1">
+            <div class="lbl">이번 달 지출</div>
+            <div class="amt">532,610원</div>
+            <div class="row"><span>예산</span><b>2,500,000원</b></div>
+            <div class="row"><span>남은 돈</span><b class="pink">1,967,390원</b></div>
+          </div>
+        </div>
+        <div class="week">
+          <div class="d"><div class="bar" style="height:12px"></div><span>월</span></div>
+          <div class="d"><div class="bar" style="height:22px"></div><span>화</span></div>
+          <div class="d"><div class="bar" style="height:8px"></div><span>수</span></div>
+          <div class="d"><div class="bar" style="height:30px"></div><span>목</span></div>
+          <div class="d"><div class="bar" style="height:16px"></div><span>금</span></div>
+          <div class="d on"><div class="bar" style="height:26px"></div><span>토</span></div>
+          <div class="d"><div class="bar" style="height:5px"></div><span>일</span></div>
+        </div>
+      </div>
+
+      <div class="chips">
+        <div class="glass chip"><div class="e" style="background:linear-gradient(135deg,#FFE3EC,#FFD0E2)">🍽️</div><div class="n">외식비</div><div class="v">18.8만</div><div class="pct" style="color:#F66E9C">35%</div></div>
+        <div class="glass chip"><div class="e" style="background:linear-gradient(135deg,#E8E1FF,#D8CCFF)">🎮</div><div class="n">취미</div><div class="v">10.9만</div><div class="pct" style="color:#8B7DF2">20%</div></div>
+        <div class="glass chip"><div class="e" style="background:linear-gradient(135deg,#DFF5EC,#C8EEDF)">🛒</div><div class="n">생필품</div><div class="v">7.1만</div><div class="pct" style="color:#2BB68E">13%</div></div>
+        <div class="glass chip"><div class="e" style="background:linear-gradient(135deg,#FFF0D9,#FFE3B8)">🚇</div><div class="n">교통비</div><div class="v">3.2만</div><div class="pct" style="color:#E89B2D">6%</div></div>
+      </div>
+
+      <div class="sec"><b>최근 내역</b><a>전체보기 →</a></div>
+      <div class="glass li"><div class="ic" style="background:linear-gradient(135deg,#DFF5EC,#C8EEDF)">🛒</div><div><div class="nm">쿠팡(쿠페이)</div><div class="mt">6/6 (토) 21:53 · 생필품</div></div><div class="am">-27,830원</div></div>
+      <div class="glass li"><div class="ic" style="background:linear-gradient(135deg,#FFE3EC,#FFD0E2)">☕</div><div><div class="nm">우지커피 인천논현점</div><div class="mt">6/6 (토) 13:49 · 외식비</div></div><div class="am">-5,000원</div></div>
+      <div class="glass li"><div class="ic" style="background:linear-gradient(135deg,#E8E1FF,#D8CCFF)">🧗</div><div><div class="nm">춘천시스포츠클라이밍</div><div class="mt">6/1 (월) 10:05 · 취미</div></div><div class="am">-70,000원</div></div>
+
+      <div class="nav">
+        <div class="on"><span>🏠</span><small>홈</small></div>
+        <div><span>📷</span><small>캡쳐</small></div>
+        <div><span>📊</span><small>차트</small></div>
+        <div><span>📅</span><small>달력</small></div>
+        <div><span>📋</span><small>내역</small></div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- ═══════════ C v2 ═══════════ -->
+  <div class="mock c">
+    <div class="mock-label">C. 벤토 마켓 v2 🍱</div>
+    <div class="mock-desc">개선점: ① 모눈종이 배경으로 "노트에 적는 가계부" 감성 ② 손그림 도넛 차트 타일 + 범례 ③ 절약 뱃지 스티커(기울임) ④ 예산바를 빗금 패턴으로 ⑤ 내역에 카테고리 태그 + 시간 ⑥ 내비/연도칩에도 오프셋 그림자로 통일감.</div>
+    <div class="phone"><div class="screen">
+      <div class="hd">
+        <div class="t">한준<em>♥</em>이현 가계부</div>
+        <div class="y">2026 · 6월</div>
+      </div>
+      <div class="bento">
+        <div class="cell spend wide">
+          <div class="sticker">12% 절약중!</div>
+          <div>
+            <div class="k">이번 달 지출 💸</div>
+            <div class="v">532,610원</div>
+            <div class="s">예산까지 1,967,390원 여유</div>
+          </div>
+          <div class="face">🤑</div>
+        </div>
+
+        <div class="cell budget">
+          <div class="k">예산 🎯</div>
+          <div class="v">21%<small> / 250만</small></div>
+          <div class="track"><i></i></div>
+          <div class="s">아직 든든해요</div>
+        </div>
+        <div class="cell cam">
+          <div class="e">📷</div>
+          <div class="n">캡쳐 넣기</div>
+          <div class="s">올리면 자동입력!</div>
+        </div>
+
+        <div class="cell wide donut-cell">
+          <div class="donut"></div>
+          <div class="legend">
+            <div class="cat-row"><span class="dot" style="background:#FFD43B"></span>외식비<span class="pct">35%</span></div>
+            <div class="cat-row"><span class="dot" style="background:#B7A6FF"></span>취미<span class="pct">20%</span></div>
+            <div class="cat-row"><span class="dot" style="background:#8FE3CF"></span>생필품<span class="pct">13%</span></div>
+            <div class="cat-row"><span class="dot" style="background:#FFA8C5"></span>교통비<span class="pct">6%</span></div>
+          </div>
+        </div>
+
+        <div class="cell recent wide">
+          <div class="k">최근 내역 🧾</div>
+          <div class="li"><span class="e" style="background:#E2F7EF">🛒</span>쿠팡(쿠페이)<span class="tg">생필품</span><span class="am">-27,830</span></div>
+          <div class="li"><span class="e" style="background:#E0EDFF">🛍️</span>(주)아성다이소<span class="tg" style="background:#E0EDFF">생필품</span><span class="am">-7,000</span></div>
+          <div class="li"><span class="e" style="background:#FFE9E0">☕</span>우지커피 인천논현점<span class="tg" style="background:#FFE9E0">외식비</span><span class="am">-5,000</span></div>
+          <div class="li"><span class="e" style="background:#F1EAFF">🧗</span>(주) 킨디클라이밍<span class="tg" style="background:#F1EAFF">취미</span><span class="am">-39,000</span></div>
+        </div>
+      </div>
+
+      <div class="nav">
+        <div class="on"><span>🏠</span><small>홈</small></div>
+        <div><span>📷</span><small>캡쳐</small></div>
+        <div><span>📊</span><small>차트</small></div>
+        <div><span>📅</span><small>달력</small></div>
+        <div><span>📋</span><small>내역</small></div>
+      </div>
+    </div></div>
+  </div>
+
+</div>
+</body>
+</html>

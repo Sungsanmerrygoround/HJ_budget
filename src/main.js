@@ -161,32 +161,83 @@ function render() {
   $("totalExpense").textContent = fmt(expense);
   $("totalBudget").textContent = budget > 0 ? fmt(budget) : "미설정";
 
-  const fill = $("budgetFill");
+  // 게이지 링: 둘레(2πr, r=53) 기준으로 사용 비율만큼 채움
+  const CIRC = 2 * Math.PI * 53;
+  const gauge = $("gaugeFg");
   const remainEl = $("remainBudget");
   if (budget > 0) {
-    remainEl.textContent = fmt(Math.max(remain, 0));
-    remainEl.style.color = remain < 0 ? "var(--red)" : "var(--primary)";
-    fill.style.width = pct + "%";
-    fill.style.background =
-      pct >= 90
-        ? "var(--red)"
-        : pct >= 70
-        ? "#F4A98F"
-        : "linear-gradient(90deg, var(--primary), var(--mint))";
-    $("budgetUsedPct").textContent = `${pct}% 사용`;
-    $("budgetUsedAmt").textContent = remain < 0 ? `${fmt(-remain)} 초과` : `${fmt(remain)} 남음`;
+    remainEl.textContent = remain < 0 ? `${fmt(-remain)} 초과` : fmt(remain);
+    remainEl.style.color = remain < 0 ? "var(--red)" : "";
+    gauge.setAttribute("stroke-dasharray", `${(pct / 100) * CIRC} ${CIRC}`);
+    $("gaugePct").textContent = pct + "%";
+    $("budgetUsedPct").textContent = "예산 사용";
   } else {
     remainEl.textContent = "—";
     remainEl.style.color = "var(--sub2)";
-    fill.style.width = "0%";
-    $("budgetUsedPct").textContent = "예산을 설정해주세요";
-    $("budgetUsedAmt").textContent = "";
+    gauge.setAttribute("stroke-dasharray", `0 ${CIRC}`);
+    $("gaugePct").textContent = "—";
+    $("budgetUsedPct").textContent = "예산 미설정";
   }
 
+  renderWeekBars(entries);
+  renderCatChips(entries);
   renderChart(entries);
   renderCatList(entries);
   renderEntryList(entries);
   if (activeView === "cal") renderCalendar();
+}
+
+// 요일별 지출 미니 바차트 (히어로 카드 안)
+function renderWeekBars(entries) {
+  const el = $("weekBars");
+  if (!el) return;
+  const DOW = ["월", "화", "수", "목", "금", "토", "일"];
+  const totals = [0, 0, 0, 0, 0, 0, 0];
+  entries.forEach((e) => {
+    const day = parseInt((e.date.split(" ")[0] || "").split("/")[1]);
+    if (!day || isNaN(day)) return;
+    const dow = new Date(currentYear, currentMonth, day).getDay(); // 0=일
+    totals[(dow + 6) % 7] += e.amount; // 월요일 시작으로 변환
+  });
+  const max = Math.max(...totals, 1);
+  const t = new Date();
+  const isRealMonth = currentYear === t.getFullYear() && currentMonth === t.getMonth();
+  const todayIdx = isRealMonth ? (t.getDay() + 6) % 7 : -1;
+  el.innerHTML = totals
+    .map((v, i) => `
+      <div class="week-d ${i === todayIdx ? "on" : ""}" title="${fmt(v)}">
+        <div class="week-bar" style="height:${Math.max(Math.round((v / max) * 30), 4)}px"></div>
+        <span>${DOW[i]}</span>
+      </div>`)
+    .join("");
+}
+
+// 카테고리 TOP4 칩 (탭하면 해당 카테고리 상세)
+function renderCatChips(entries) {
+  const el = $("catChips");
+  if (!el) return;
+  const expense = entries.reduce((s, e) => s + e.amount, 0);
+  const rows = CATS.map((cat, i) => ({
+    cat, i,
+    total: entries.filter((e) => e.category === cat).reduce((s, e) => s + e.amount, 0),
+  }))
+    .filter((r) => r.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 4);
+  if (rows.length === 0) {
+    el.innerHTML = "";
+    return;
+  }
+  const fmtShort = (n) => (n >= 10000 ? (n / 10000).toFixed(1).replace(/\.0$/, "") + "만" : n.toLocaleString("ko-KR"));
+  el.innerHTML = rows
+    .map(({ cat, total, i }) => `
+      <div class="cat-chip glass" data-cat="${cat}">
+        <div class="cc-icon" style="background:${CAT_COLORS[i]}33">${CAT_ICONS[cat] || "📦"}</div>
+        <div class="cc-name">${cat}</div>
+        <div class="cc-amt">${fmtShort(total)}</div>
+        <div class="cc-pct" style="color:${CAT_COLORS[i]}">${Math.round((total / expense) * 100)}%</div>
+      </div>`)
+    .join("");
 }
 
 function renderChart(entries) {
@@ -726,6 +777,10 @@ function wireEvents() {
     if (item) openEditModal(Number(item.dataset.index));
   });
   $("catList").addEventListener("click", (e) => {
+    const item = e.target.closest("[data-cat]");
+    if (item) openModal(item.dataset.cat);
+  });
+  $("catChips").addEventListener("click", (e) => {
     const item = e.target.closest("[data-cat]");
     if (item) openModal(item.dataset.cat);
   });

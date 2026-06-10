@@ -6,7 +6,9 @@
   <title>한준♥이현 가계부</title>
   <meta name="theme-color" content="#8B7DF2" />
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="apple-touch-icon" href="icon.svg" />
+  <!-- iOS 홈화면 아이콘은 PNG만 지원 -->
+  <link rel="apple-touch-icon" href="icon-180.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
 
   <!-- 폰트 -->
   <link href="https://fonts.googleapis.com/css2?family=Jua&family=Outfit:wght@300;400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -43,42 +45,47 @@
   ⚠️ Firebase 설정이 필요해요. <code>src/firebase-config.js</code>를 채우면 저장이 켜집니다.
 </div>
 
-<div class="summary">
-  <div class="card red-card">
-    <div class="card-icon">💸</div>
-    <div class="label">이번 달 지출</div>
-    <div class="amount expense-color" id="totalExpense">0원</div>
+<!-- 글래스 히어로: 게이지 + 지출/예산 + 요일별 미니 차트 + 예산 설정 -->
+<div class="hero glass">
+  <div class="hero-top">
+    <div class="gauge">
+      <svg width="124" height="124" viewBox="0 0 124 124" aria-hidden="true">
+        <defs>
+          <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#8B7DF2" />
+            <stop offset="1" stop-color="#F66E9C" />
+          </linearGradient>
+        </defs>
+        <circle class="gauge-bg" cx="62" cy="62" r="53" />
+        <circle class="gauge-fg" id="gaugeFg" cx="62" cy="62" r="53" stroke-dasharray="0 333" />
+      </svg>
+      <div class="gauge-txt"><b id="gaugePct">—</b><small id="budgetUsedPct">예산 사용</small></div>
+    </div>
+    <div class="hero-right">
+      <div class="hero-lbl">이번 달 지출</div>
+      <div class="hero-amt" id="totalExpense">0원</div>
+      <div class="hero-row"><span>예산</span><b id="totalBudget">미설정</b></div>
+      <div class="hero-row"><span>남은 돈</span><b class="pink" id="remainBudget">—</b></div>
+    </div>
   </div>
-  <div class="card">
-    <div class="card-icon">🎯</div>
-    <div class="label">월 예산</div>
-    <div class="amount balance-color" id="totalBudget">미설정</div>
-  </div>
-</div>
-
-<div class="budget-bar-wrap">
-  <div class="budget-bar-top">
-    <div class="budget-bar-label">잔여 예산</div>
-    <div class="budget-bar-remain" id="remainBudget">—</div>
-  </div>
-  <div class="budget-bg"><div class="budget-fill" id="budgetFill" style="width:0%"></div></div>
-  <div class="budget-sub">
-    <span id="budgetUsedPct">예산을 설정해주세요</span>
-    <span id="budgetUsedAmt"></span>
-  </div>
+  <div class="week" id="weekBars"></div>
   <div class="budget-edit-row">
     <input class="budget-input" type="number" id="budgetInput" placeholder="이번 달 예산 (원)" inputmode="numeric" />
     <button class="btn-budget" id="btnBudget">설정</button>
   </div>
 </div>
 
-<div class="view-tabs">
-  <button class="view-tab active" data-view="add">➕ 추가</button>
-  <button class="view-tab" data-view="capture">📷 캡쳐</button>
-  <button class="view-tab" data-view="chart">📊 차트</button>
-  <button class="view-tab" data-view="cal">📅 달력</button>
-  <button class="view-tab" data-view="list">📋 내역</button>
-</div>
+<!-- 카테고리 TOP4 칩 -->
+<div class="cat-chips" id="catChips"></div>
+
+<!-- 하단 플로팅 내비 -->
+<nav class="view-tabs">
+  <button class="view-tab active" data-view="add"><span>➕</span><small>추가</small></button>
+  <button class="view-tab" data-view="capture"><span>📷</span><small>캡쳐</small></button>
+  <button class="view-tab" data-view="chart"><span>📊</span><small>차트</small></button>
+  <button class="view-tab" data-view="cal"><span>📅</span><small>달력</small></button>
+  <button class="view-tab" data-view="list"><span>📋</span><small>내역</small></button>
+</nav>
 
 <!-- ➕ 추가 -->
 <div class="view-panel active" id="panel-add">
