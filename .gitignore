@@ -9,3 +9,6 @@ Thumbs.db
 
 # Firebase 로컬 캐시 (나중에)
 .firebase/
+
+# Claude Code 로컬 설정
+.claude/

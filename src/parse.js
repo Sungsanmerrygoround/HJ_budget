@@ -14,7 +14,12 @@
 //   - 단, 직전에 거래금액을 막 추가했고 이번 숫자가 그 금액보다 훨씬 크면 → 잔액으로 보고 버림
 //   - 화면 맨 위 요약(소비/지난달 등)·날짜 헤더는 거래에서 제외
 
-const AMOUNT_RE = /([-+‒–—−])?\s*([\d][\d,]*)\s*원/; // (부호?) 숫자 "원"
+// OCR이 쉼표(,)를 마침표(.)로 잘못 읽는 일이 흔해 둘 다 천 단위 구분자로 허용
+// (원화는 소수점이 없어 안전)
+const AMOUNT_RE = /([-+‒–—−])?\s*([\d][\d,.]*)\s*원/; // (부호?) 숫자 "원"
+// '원' 글자를 OCR이 통째로 놓친 경우의 구제용: 부호가 분명히 붙은 숫자만 인정
+// (잔액은 부호가 없으니 이 패턴에 잡히지 않음)
+const SIGNED_NO_WON_RE = /([-+‒–—−])\s*([\d][\d,.]*[\d])(?!\s*[:.\d%])/;
 const TIME_RE = /\b(\d{1,2}):(\d{2})\b/; // 16:38
 
 // 잔액으로 판정할 배수: 부호 없는 숫자가 직전 거래금액의 N배 이상이면 잔액으로 본다.
@@ -28,7 +33,7 @@ const BALANCE_NEAR = 0.8;
 // 상단 요약/안내 줄(거래가 아님)을 거르는 패턴.
 // 핵심 방어는 "첫 날짜 헤더 위는 전부 무시"(startIdx)이고, 이건 날짜 헤더가 없는 화면용 보조 장치다.
 // 가맹점 이름(예: "큰지출가맹점", "수입식품")을 오인해 버리지 않도록, 요약에만 나오는 문구로 좁힌다.
-const SUMMARY_RE = /지난달|비해|평균|쓰고\s?있|덜\s?쓰|더\s?쓰|모으고|^(소비|수입|지출|합계|총\s?지출)\s*[\d,]+\s*원$/;
+const SUMMARY_RE = /지난달|이번\s?달|비해|평균|쓰고\s?있|덜\s?쓰|더\s?쓰|모으고|^(소비|수입|지출|합계|총\s?지출)\s*[\d,.]+\s*원$/;
 
 /**
  * @param {string} rawText OCR 원문
@@ -72,7 +77,7 @@ export function parseTransactions(rawText) {
     // 2) 상단 요약/안내 줄은 통째로 무시
     if (SUMMARY_RE.test(line)) continue;
 
-    const m = line.match(AMOUNT_RE);
+    const m = matchAmount(line);
     const timeM = line.match(TIME_RE);
     const hasTime = !!timeM;
 
@@ -85,7 +90,7 @@ export function parseTransactions(rawText) {
     }
 
     const sign = m[1]; // '-', '+', 대시 변형, 또는 undefined
-    const amount = Number(m[2].replace(/,/g, ""));
+    const amount = Number(m[2].replace(/[,.]/g, ""));
     const before = line.slice(0, m.index);
     const hasMerchant = /[가-힣A-Za-z]/.test(before); // 금액 앞에 가맹점 글자가 있나
 
@@ -187,6 +192,21 @@ export function parseTransactions(rawText) {
 }
 
 // ── 도우미 ──
+// 줄에서 금액을 찾습니다. 기본은 "숫자+원" 패턴이고,
+// OCR이 '원'을 놓친 줄은 부호 있는 숫자(100원 이상)로 한 번 더 시도합니다.
+function matchAmount(line) {
+  const m = line.match(AMOUNT_RE);
+  if (m) return m;
+  const f = line.match(SIGNED_NO_WON_RE);
+  if (!f) return null;
+  // 부호 앞이 숫자면(예: "6-7", "2025-06-07") 날짜/범위이지 금액이 아님
+  const prev = f.index > 0 ? line[f.index - 1] : "";
+  if (/[\d)]/.test(prev)) return null;
+  // 너무 작은 숫자는 금액일 가능성이 낮아 버림 (노이즈 방지)
+  if (Number(f[2].replace(/[,.]/g, "")) < 100) return null;
+  return f;
+}
+
 function isMinus(sign) {
   return sign === "-" || sign === "‒" || sign === "–" || sign === "—" || sign === "−";
 }

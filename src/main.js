@@ -508,6 +508,7 @@ function setupCapture() {
     capOcrBtn.hidden = false;
     capEditor.hidden = true;
     capStatus.hidden = true;
+    $("capRaw").hidden = true;
   });
 
   capOcrBtn.addEventListener("click", async () => {
@@ -516,8 +517,20 @@ function setupCapture() {
     capStatus.hidden = false;
     capStatus.textContent = "글자 인식 준비 중... (처음엔 한글 데이터 받느라 조금 걸려요)";
     try {
-      const text = await extractText(selectedFile, (pct) => (capStatus.textContent = `글자 인식 중... ${pct}%`));
-      const { expenses, excludedIncome } = parseTransactions(text);
+      let text = await extractText(selectedFile, (pct) => (capStatus.textContent = `글자 인식 중... ${pct}%`));
+      let parsed = parseTransactions(text);
+      // 보정본에서 한 건도 못 찾으면, 보정이 오히려 망친 경우일 수 있어 원본으로 한 번 더
+      if (parsed.expenses.length === 0) {
+        capStatus.textContent = "다시 인식 중... (원본 그대로)";
+        const rawTry = await extractText(selectedFile, (pct) => (capStatus.textContent = `다시 인식 중... ${pct}%`), { preprocess: false });
+        const rawParsed = parseTransactions(rawTry);
+        if (rawParsed.expenses.length > 0) {
+          text = rawTry;
+          parsed = rawParsed;
+        }
+      }
+      const { expenses, excludedIncome } = parsed;
+      showCapRaw(text);
       capItems = expenses.map((e) => ({
         desc: e.merchant,
         category: smartCategory(e.merchant), // 학습된 분류 우선
@@ -585,6 +598,14 @@ function setupCapture() {
       rows +
       `<div class="cap-import-row"><span class="total">합계 <b>${fmt(capTotal())}</b> · ${capItems.length}건</span><button class="btn-add cap-import-btn" id="capImport">전체 추가</button></div>`;
     capEditor.hidden = false;
+  }
+
+  // 인식이 이상할 때 원인을 볼 수 있게, OCR이 읽은 원문을 접이식으로 보여줍니다.
+  function showCapRaw(text) {
+    const el = $("capRaw");
+    if (!el) return;
+    el.innerHTML = `<details class="cap-raw"><summary>🔎 인식 원문 보기 (잘못 읽었다면 여기서 확인)</summary><pre>${esc(text.trim())}</pre></details>`;
+    el.hidden = false;
   }
 
   function capTotal() {
@@ -659,6 +680,7 @@ function setupCapture() {
     capPreview.innerHTML = "<span>고른 캡쳐가 여기 보여요</span>";
     capOcrBtn.hidden = true;
     capFile.value = "";
+    $("capRaw").hidden = true;
     capStatus.hidden = false;
     capStatus.textContent =
       added > 0
