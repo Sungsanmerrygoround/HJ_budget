@@ -4,8 +4,10 @@
 
 import { extractText } from "./ocr.js";
 import { parseTransactions } from "./parse.js";
-import { categorize, CATS, CAT_ICONS, CAT_COLORS, catColor } from "./categorize.js";
+import { categorize, CATS, CAT_ICONS, CAT_COLORS } from "./categorize.js";
 import { isConfigured } from "./firebase-config.js";
+import { $, fmt, fmtShort, esc, showLoading } from "./dom.js";
+import { sumAmount, categoryTotals, rankedCategories } from "./aggregate.js";
 
 const MONTHS = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
 
@@ -71,11 +73,7 @@ async function rememberRule(merchant, category) {
 }
 
 // ── 도우미 ──
-const $ = (id) => document.getElementById(id);
-const fmt = (n) => (Number(n) || 0).toLocaleString("ko-KR") + "원";
-const showLoading = (on) => ($("loadingBar").style.display = on ? "block" : "none");
-const esc = (s) =>
-  String(s ?? "").replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+// $, fmt, fmtShort, esc, showLoading 는 dom.js 로 분리했습니다.
 
 function fillCategorySelects() {
   const opts = CATS.map((c) => `<option>${c}</option>`).join("");
@@ -154,7 +152,7 @@ function buildMonthTabs() {
 function render() {
   const entries = cachedEntries;
   const budget = cachedBudget;
-  const expense = entries.reduce((s, e) => s + e.amount, 0);
+  const expense = sumAmount(entries);
   const remain = budget - expense;
   const pct = budget > 0 ? Math.min(Math.round((expense / budget) * 100), 100) : 0;
 
@@ -216,19 +214,12 @@ function renderWeekBars(entries) {
 function renderCatChips(entries) {
   const el = $("catChips");
   if (!el) return;
-  const expense = entries.reduce((s, e) => s + e.amount, 0);
-  const rows = CATS.map((cat, i) => ({
-    cat, i,
-    total: entries.filter((e) => e.category === cat).reduce((s, e) => s + e.amount, 0),
-  }))
-    .filter((r) => r.total > 0)
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 4);
+  const expense = sumAmount(entries);
+  const rows = rankedCategories(entries).slice(0, 4);
   if (rows.length === 0) {
     el.innerHTML = "";
     return;
   }
-  const fmtShort = (n) => (n >= 10000 ? (n / 10000).toFixed(1).replace(/\.0$/, "") + "만" : n.toLocaleString("ko-KR"));
   el.innerHTML = rows
     .map(({ cat, total, i }) => `
       <div class="cat-chip glass" data-cat="${cat}">
@@ -241,7 +232,7 @@ function renderCatChips(entries) {
 }
 
 function renderChart(entries) {
-  const totals = CATS.map((c) => entries.filter((e) => e.category === c).reduce((s, e) => s + e.amount, 0));
+  const totals = categoryTotals(entries);
   const hasData = totals.some((t) => t > 0);
   const ctx = $("myChart").getContext("2d");
   if (chartInstance) chartInstance.destroy();
@@ -284,11 +275,9 @@ function renderChart(entries) {
 }
 
 function renderCatList(entries) {
-  const maxTotal = Math.max(...CATS.map((c) => entries.filter((e) => e.category === c).reduce((s, e) => s + e.amount, 0)), 1);
+  const maxTotal = Math.max(...categoryTotals(entries), 1);
   const container = $("catList");
-  const rows = CATS.map((cat, i) => ({ cat, total: entries.filter((e) => e.category === cat).reduce((s, e) => s + e.amount, 0), i }))
-    .filter((r) => r.total > 0)
-    .sort((a, b) => b.total - a.total);
+  const rows = rankedCategories(entries);
   if (rows.length === 0) {
     container.innerHTML = '<div class="empty">이번 달은 아직 깨끗해요 ✨</div>';
     return;
@@ -412,7 +401,7 @@ function renderCalendar(selectedDay) {
   for (let d = 1; d <= daysInMonth; d++) {
     const dayStr = `${month + 1}/${d}`;
     const dayEntries = dayMap[dayStr] || [];
-    const total = dayEntries.reduce((s, e) => s + e.amount, 0);
+    const total = sumAmount(dayEntries);
     const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === d;
     const hasData = dayEntries.length > 0;
     html += `<div class="cal-cell ${hasData ? "has-data" : ""} ${isToday ? "today" : ""} ${selectedDay === d ? "selected-day" : ""}" ${hasData ? `data-day="${d}"` : ""}>
@@ -422,7 +411,7 @@ function renderCalendar(selectedDay) {
   if (selectedDay) {
     const dayStr = `${month + 1}/${selectedDay}`;
     const dayEntries = dayMap[dayStr] || [];
-    const total = dayEntries.reduce((s, e) => s + e.amount, 0);
+    const total = sumAmount(dayEntries);
     $("dayDetailTitle").textContent = `${month + 1}월 ${selectedDay}일 · ${fmt(total)}`;
     $("dayEntryList").innerHTML = dayEntries
       .map((e) => `
@@ -440,7 +429,7 @@ function renderCalendar(selectedDay) {
 // ── 카테고리 상세 모달 ──
 function openModal(cat) {
   const entries = cachedEntries.filter((e) => e.category === cat);
-  const total = entries.reduce((s, e) => s + e.amount, 0);
+  const total = sumAmount(entries);
   $("modalTitle").textContent = `${CAT_ICONS[cat]} ${cat} · ${fmt(total)}`;
   $("modalBody").innerHTML =
     entries.length === 0
