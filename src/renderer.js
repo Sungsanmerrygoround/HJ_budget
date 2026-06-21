@@ -41,8 +41,8 @@ export function renderCatChips(entries) {
   const rows = rankedCategories(entries).slice(0, 4);
   if (rows.length === 0) { el.innerHTML = ""; return; }
   el.innerHTML = rows
-    .map(({ cat, total, i }) => `
-      <div class="cat-chip glass" data-cat="${cat}">
+    .map(({ cat, total, i }, di) => `
+      <div class="cat-chip glass" data-cat="${cat}" style="animation:fadeSlideIn 0.28s cubic-bezier(.4,0,.2,1) both;animation-delay:${di * 0.06}s">
         <div class="cc-icon" style="background:${CAT_COLORS[i]}33">${CAT_ICONS[cat] || "📦"}</div>
         <div class="cc-name">${cat}</div>
         <div class="cc-amt">${fmtShort(total)}</div>
@@ -101,29 +101,77 @@ export function renderCatList(entries) {
     return;
   }
   container.innerHTML = rows
-    .map(({ cat, total, i }) => `
-      <div class="cat-item" data-cat="${cat}">
+    .map(({ cat, total, i }, di) => `
+      <div class="cat-item" data-cat="${cat}" style="animation:fadeSlideIn 0.28s cubic-bezier(.4,0,.2,1) both;animation-delay:${di * 0.06}s">
         <div class="cat-header"><div class="cat-name">${CAT_ICONS[cat] || "📦"} ${cat}</div><div class="cat-total">${fmt(total)}</div></div>
         <div class="cat-bar-bg"><div class="cat-bar" style="width:${Math.round((total / maxTotal) * 100)}%;background:${CAT_COLORS[i]}"></div></div>
       </div>`)
     .join("");
 }
 
-export function renderEntryList(entries) {
+export function renderEntryList(entries, emptyMsg = "아직 기록이 없어요 💙<br>오늘 첫 소비를 담아볼까요?") {
   const container = $("entryList");
   if (entries.length === 0) {
-    container.innerHTML = '<div class="empty">아직 기록이 없어요 💜<br>오늘 첫 소비를 담아볼까요?</div>';
+    container.innerHTML = `<div class="empty">${emptyMsg}</div>`;
     return;
   }
-  container.innerHTML = entries
-    .map((e, i) => ({ ...e, realIndex: i }))
+  container.innerHTML = [...entries]
     .reverse()
-    .map((e) => `
-      <div class="entry-item" data-index="${e.realIndex}">
+    .map((e, di) => `
+      <div class="entry-item" data-index="${"_origIdx" in e ? e._origIdx : entries.indexOf(e)}" style="animation:fadeSlideIn 0.28s cubic-bezier(.4,0,.2,1) both;animation-delay:${Math.min(di * 0.04, 0.32)}s">
         <div><div class="entry-desc">${esc(e.desc)} <span style="font-size:11px;color:var(--sub2)">[${esc(e.category)}]</span></div><div class="entry-meta">${esc(e.date)} · 탭해서 수정</div></div>
         <div class="entry-amt-expense">-${fmt(e.amount)}</div>
       </div>`)
     .join("");
+}
+
+let trendChartInstance = null;
+
+export function renderMonthlyTrend(months) {
+  const canvas = $("trendChart");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (trendChartInstance) trendChartInstance.destroy();
+  trendChartInstance = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: months.map((m) => m.label),
+      datasets: [{
+        data: months.map((m) => m.total),
+        backgroundColor: months.map((_, i) =>
+          i === months.length - 1 ? "rgba(37,99,235,0.85)" : "rgba(37,99,235,0.22)"),
+        borderColor: months.map((_, i) =>
+          i === months.length - 1 ? "#2563EB" : "rgba(37,99,235,0.35)"),
+        borderWidth: 1.5,
+        borderRadius: 8,
+        borderSkipped: false,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: { label: (c) => ` ${c.parsed.y.toLocaleString("ko-KR")}원` },
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { size: 11, family: "Outfit, Noto Sans KR, sans-serif" }, color: "#94A3B8" },
+        },
+        y: {
+          grid: { color: "rgba(0,0,0,0.04)" },
+          ticks: {
+            font: { size: 10, family: "Outfit, Noto Sans KR, sans-serif" },
+            color: "#94A3B8",
+            callback: (v) => v >= 10000 ? (v / 10000).toFixed(0) + "만" : v,
+          },
+        },
+      },
+    },
+  });
 }
 
 // entries, year, month 를 인자로 받아 달력을 그립니다. selectedDay는 선택 사항.

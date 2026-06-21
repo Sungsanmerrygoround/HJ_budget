@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>한준♥이현 가계부</title>
-  <meta name="theme-color" content="#8B7DF2" />
+  <meta name="theme-color" content="#2563EB" />
   <link rel="manifest" href="manifest.webmanifest" />
   <!-- iOS 홈화면 아이콘은 PNG만 지원 -->
   <link rel="apple-touch-icon" href="icon-180.png" />
@@ -22,6 +22,7 @@
 <body>
 
 <div id="loadingBar"></div>
+<div id="toast"></div>
 
 <!-- 동기화 상태 (가족 자동로그인이라 버튼 없음) -->
 <div id="user-bar" class="user-bar" hidden><span id="user-email"></span></div>
@@ -52,8 +53,8 @@
       <svg width="124" height="124" viewBox="0 0 124 124" aria-hidden="true">
         <defs>
           <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#8B7DF2" />
-            <stop offset="1" stop-color="#F66E9C" />
+            <stop offset="0" stop-color="#ffffff" />
+            <stop offset="1" stop-color="#BAE6FD" />
           </linearGradient>
         </defs>
         <circle class="gauge-bg" cx="62" cy="62" r="53" />
@@ -142,6 +143,12 @@
       <div class="chart-wrap"><canvas id="myChart"></canvas></div>
     </div>
   </div>
+  <div class="section" id="trendSection" hidden>
+    <div class="chart-card">
+      <div class="section-title">최근 6개월 추이</div>
+      <div class="trend-wrap"><canvas id="trendChart"></canvas></div>
+    </div>
+  </div>
   <div class="section">
     <div class="section-title">상세 내역</div>
     <div class="cat-list" id="catList"></div>
@@ -162,6 +169,10 @@
 
 <!-- 📋 내역 -->
 <div class="view-panel" id="panel-list">
+  <div class="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input id="searchInput" class="search-input" type="search" placeholder="내역 검색..." autocomplete="off" />
+  </div>
   <div class="section">
     <div class="section-title">전체 내역</div>
     <div class="entry-list" id="entryList"></div>

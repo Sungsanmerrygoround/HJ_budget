@@ -17,3 +17,16 @@ export const esc = (s) =>
 
 /** 상단 로딩 바 표시/숨김 */
 export const showLoading = (on) => ($("loadingBar").style.display = on ? "block" : "none");
+
+/** 짧은 토스트 알림 (type: '' | 'error') */
+let _toastTimer;
+export function showToast(msg, type = '') {
+  const el = $("toast");
+  if (!el) return;
+  clearTimeout(_toastTimer);
+  el.textContent = msg;
+  el.className = type;
+  void el.offsetWidth; // force reflow so transition fires even on rapid calls
+  el.classList.add("show");
+  _toastTimer = setTimeout(() => el.classList.remove("show"), 2400);
+}

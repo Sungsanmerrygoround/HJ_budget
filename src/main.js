@@ -3,11 +3,12 @@
 
 import { categorize, CATS, CAT_ICONS } from "./categorize.js";
 import { isConfigured } from "./firebase-config.js";
-import { $, fmt, esc, showLoading } from "./dom.js";
+import { $, fmt, esc, showLoading, showToast } from "./dom.js";
 import { sumAmount } from "./aggregate.js";
 import {
   renderWeekBars, renderCatChips, renderChart,
   renderCatList, renderEntryList, renderCalendar,
+  renderMonthlyTrend,
 } from "./renderer.js";
 import { setupCapture } from "./capture.js";
 
@@ -21,6 +22,7 @@ let cachedEntries = [];
 let cachedBudget = 0;
 let activeView = "add";
 let editingIndex = -1;
+let searchQuery = '';
 let learnMap = {}; // 학습형 분류: normalize(가맹점) -> 카테고리
 
 // ── Firebase 연결 (설정됐을 때만) ──
@@ -96,27 +98,32 @@ async function loadData() {
   }
   showLoading(false);
   render();
+  if (activeView === "chart") loadAndRenderTrend();
 }
 
 async function saveData() {
   if (!saveMonth || !getUser()) {
-    alert("아직 연결 중이에요. 잠시 후 다시 시도하세요.");
-    return;
+    showToast("아직 연결 중이에요. 잠시 후 다시 시도하세요.", "error");
+    return false;
   }
   try {
     await saveMonth(currentYear, currentMonth, {
       entries: cachedEntries,
       budget: cachedBudget,
     });
+    return true;
   } catch (e) {
     console.error(e);
-    alert("저장 오류. 인터넷 연결을 확인해주세요.");
+    showToast("저장 오류. 인터넷 연결을 확인해주세요.", "error");
+    return false;
   }
 }
 
 // ── 연도 이동 ──
 function changeYear(delta) {
   currentYear += delta;
+  searchQuery = '';
+  const si = $("searchInput"); if (si) si.value = '';
   buildMonthTabs();
   syncAddDate();
   loadData();
@@ -133,6 +140,8 @@ function buildMonthTabs() {
     btn.textContent = m;
     btn.onclick = () => {
       currentMonth = i;
+      searchQuery = '';
+      const si = $("searchInput"); if (si) si.value = '';
       buildMonthTabs();
       syncAddDate();
       loadData();
@@ -145,13 +154,33 @@ function buildMonthTabs() {
   }, 50);
 }
 
+// ── 게이지 색상: 정상/경고/위험 ──
+function updateGaugeColors(realPct) {
+  const stops = document.querySelectorAll("#gaugeGrad stop");
+  const pctEl = $("gaugePct");
+  if (realPct >= 100) {
+    stops[0].setAttribute("stop-color", "#FCA5A5");
+    stops[1].setAttribute("stop-color", "#EF4444");
+    if (pctEl) pctEl.style.color = "#FCA5A5";
+  } else if (realPct >= 80) {
+    stops[0].setAttribute("stop-color", "#FDE68A");
+    stops[1].setAttribute("stop-color", "#F59E0B");
+    if (pctEl) pctEl.style.color = "#FDE68A";
+  } else {
+    stops[0].setAttribute("stop-color", "#ffffff");
+    stops[1].setAttribute("stop-color", "#BAE6FD");
+    if (pctEl) pctEl.style.color = "";
+  }
+}
+
 // ── 렌더 ──
 function render() {
   const entries = cachedEntries;
   const budget = cachedBudget;
   const expense = sumAmount(entries);
   const remain = budget - expense;
-  const pct = budget > 0 ? Math.min(Math.round((expense / budget) * 100), 100) : 0;
+  const realPct = budget > 0 ? Math.round((expense / budget) * 100) : 0;
+  const pct = Math.min(realPct, 100);
 
   $("totalExpense").textContent = fmt(expense);
   $("totalBudget").textContent = budget > 0 ? fmt(budget) : "미설정";
@@ -164,7 +193,7 @@ function render() {
     remainEl.textContent = remain < 0 ? `${fmt(-remain)} 초과` : fmt(remain);
     remainEl.style.color = remain < 0 ? "var(--red)" : "";
     gauge.setAttribute("stroke-dasharray", `${(pct / 100) * CIRC} ${CIRC}`);
-    $("gaugePct").textContent = pct + "%";
+    $("gaugePct").textContent = realPct + "%";
     $("budgetUsedPct").textContent = "예산 사용";
   } else {
     remainEl.textContent = "—";
@@ -173,12 +202,26 @@ function render() {
     $("gaugePct").textContent = "—";
     $("budgetUsedPct").textContent = "예산 미설정";
   }
+  updateGaugeColors(realPct);
+  gauge.classList.toggle("gauge-danger", realPct >= 100);
 
   renderWeekBars(entries, currentYear, currentMonth);
   renderCatChips(entries);
   renderChart(entries);
   renderCatList(entries);
-  renderEntryList(entries);
+
+  // 검색 필터 적용
+  const tagged = entries.map((e, i) => ({ ...e, _origIdx: i }));
+  const visible = searchQuery
+    ? tagged.filter((e) =>
+        e.desc.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        e.category.includes(searchQuery))
+    : tagged;
+  const emptyMsg = searchQuery && entries.length > 0
+    ? "검색 결과가 없어요"
+    : "아직 기록이 없어요 💙<br>오늘 첫 소비를 담아볼까요?";
+  renderEntryList(visible, emptyMsg);
+
   if (activeView === "cal") renderCalendar(cachedEntries, currentYear, currentMonth);
 }
 
@@ -188,7 +231,7 @@ async function addEntry() {
   const desc = $("desc").value.trim();
   const amount = parseInt($("amount").value);
   if (!desc || !amount || amount <= 0) {
-    alert("내용과 금액을 입력해주세요!");
+    showToast("내용과 금액을 입력해주세요!", "error");
     return;
   }
   // 날짜: 보고 있는 달(currentMonth)로 고정하고, 고른 '일'만 사용 (월 불일치 방지)
@@ -214,11 +257,12 @@ async function addEntry() {
     }
   }
   cachedEntries.push(entry);
-  await saveData();
+  const ok = await saveData();
   render();
   $("desc").value = "";
   $("amount").value = "";
   syncAddDate();
+  if (ok) showToast("✅ 추가됐어요!");
 }
 
 // 현재 보고 있는 월(currentYear/currentMonth)의 날짜 범위
@@ -252,7 +296,7 @@ function switchView(view) {
   document.querySelectorAll(".view-tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
   document.querySelectorAll(".view-panel").forEach((p) => p.classList.remove("active"));
   $("panel-" + view).classList.add("active");
-  if (view === "chart") render();
+  if (view === "chart") { render(); loadAndRenderTrend(); }
   if (view === "cal") renderCalendar(cachedEntries, currentYear, currentMonth);
 }
 
@@ -296,7 +340,7 @@ async function saveEdit() {
   const amount = parseInt($("editAmount").value);
   const category = $("editCategory").value;
   if (!desc || !amount || amount <= 0) {
-    alert("내용과 금액을 입력해주세요!");
+    showToast("내용과 금액을 입력해주세요!", "error");
     return;
   }
   // 날짜: 보고 있는 달로 고정, 고른 '일'만 반영 (월 불일치 방지)
@@ -315,19 +359,21 @@ async function saveEdit() {
   const newDate = `${currentMonth + 1}/${day} ${timePart}`;
 
   cachedEntries[editingIndex] = { ...cachedEntries[editingIndex], desc, amount, category, date: newDate };
-  await saveData();
-  rememberRule(desc, category); // 이 가맹점의 카테고리를 학습
+  const ok = await saveData();
+  rememberRule(desc, category);
   closeEditModal();
   render();
+  if (ok) showToast("✅ 수정했어요!");
 }
 
 async function deleteEntry() {
   if (editingIndex < 0) return;
   if (!confirm("이 내역을 삭제할까요?")) return;
   cachedEntries.splice(editingIndex, 1);
-  await saveData();
+  const ok = await saveData();
   closeEditModal();
   render();
+  if (ok) showToast("🗑 삭제했어요");
 }
 
 function closeEditModal() {
@@ -342,7 +388,7 @@ function closeCatModal() {
 async function saveBudget() {
   const val = parseInt($("budgetInput").value);
   if (!val || val <= 0) {
-    alert("예산을 올바르게 입력해주세요!");
+    showToast("예산을 올바르게 입력해주세요!", "error");
     return;
   }
   // 예산만 바꾸므로, 동시 추가된 내역을 덮어쓰지 않도록 최신 내역을 먼저 받음
@@ -356,8 +402,29 @@ async function saveBudget() {
   }
   cachedBudget = val;
   $("budgetInput").value = "";
-  await saveData();
+  const ok = await saveData();
   render();
+  if (ok) showToast("✅ 예산을 설정했어요!");
+}
+
+// ── 최근 6개월 추이 로드 ──
+async function loadAndRenderTrend() {
+  if (!loadMonth || !getUser()) return;
+  const section = $("trendSection");
+  if (!section) return;
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    let y = currentYear, m = currentMonth - i;
+    while (m < 0) { m += 12; y--; }
+    try {
+      const data = await loadMonth(y, m);
+      months.push({ label: `${m + 1}월`, total: sumAmount(data.entries) });
+    } catch {
+      months.push({ label: `${m + 1}월`, total: 0 });
+    }
+  }
+  section.hidden = false;
+  renderMonthlyTrend(months);
 }
 
 // ════════ 이벤트 연결 ════════
@@ -404,6 +471,11 @@ function wireEvents() {
   $("calGrid").addEventListener("click", (e) => {
     const cell = e.target.closest("[data-day]");
     if (cell) renderCalendar(cachedEntries, currentYear, currentMonth, Number(cell.dataset.day));
+  });
+
+  $("searchInput").addEventListener("input", (e) => {
+    searchQuery = e.target.value.trim();
+    render();
   });
 
   setupCapture({
