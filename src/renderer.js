@@ -8,6 +8,25 @@ import { sumAmount, categoryTotals, rankedCategories } from "./aggregate.js";
 
 let chartInstance = null;
 
+/** 예산 사용률에 따라 게이지 그라데이션 색을 바꿉니다 (정상/경고/위험). */
+export function updateGaugeColors(realPct) {
+  const stops = document.querySelectorAll("#gaugeGrad stop");
+  const pctEl = document.getElementById("gaugePct");
+  if (realPct >= 100) {
+    stops[0].setAttribute("stop-color", "#FCA5A5");
+    stops[1].setAttribute("stop-color", "#EF4444");
+    if (pctEl) pctEl.style.color = "#FCA5A5";
+  } else if (realPct >= 80) {
+    stops[0].setAttribute("stop-color", "#FDE68A");
+    stops[1].setAttribute("stop-color", "#F59E0B");
+    if (pctEl) pctEl.style.color = "#FDE68A";
+  } else {
+    stops[0].setAttribute("stop-color", "#ffffff");
+    stops[1].setAttribute("stop-color", "#BAE6FD");
+    if (pctEl) pctEl.style.color = "";
+  }
+}
+
 // 요일별 지출 미니 바차트 (히어로 카드 안)
 export function renderWeekBars(entries, year, month) {
   const el = $("weekBars");
@@ -60,7 +79,7 @@ export function renderChart(entries) {
     chartInstance = null;
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     ctx.font = "500 13px Outfit, Noto Sans KR, sans-serif";
-    ctx.fillStyle = "#A9A2C2";
+    ctx.fillStyle = "#94A3B8";
     ctx.textAlign = "center";
     ctx.fillText("이번 달은 아직 깨끗해요 ✨", ctx.canvas.width / 2, 100);
     return;

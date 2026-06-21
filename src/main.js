@@ -1,4 +1,4 @@
-// main.js — snap-budget 앱 컨트롤러
+// main.js — 한준♥이현 가계부 앱 컨트롤러
 // 상태·데이터·라우팅을 담당하고, 렌더링은 renderer.js, OCR 흐름은 capture.js에 위임합니다.
 
 import { categorize, CATS, CAT_ICONS } from "./categorize.js";
@@ -8,7 +8,7 @@ import { sumAmount } from "./aggregate.js";
 import {
   renderWeekBars, renderCatChips, renderChart,
   renderCatList, renderEntryList, renderCalendar,
-  renderMonthlyTrend,
+  renderMonthlyTrend, updateGaugeColors,
 } from "./renderer.js";
 import { setupCapture } from "./capture.js";
 
@@ -152,25 +152,6 @@ function buildMonthTabs() {
     const active = container.querySelector(".active");
     if (active) active.scrollIntoView({ inline: "center", behavior: "smooth" });
   }, 50);
-}
-
-// ── 게이지 색상: 정상/경고/위험 ──
-function updateGaugeColors(realPct) {
-  const stops = document.querySelectorAll("#gaugeGrad stop");
-  const pctEl = $("gaugePct");
-  if (realPct >= 100) {
-    stops[0].setAttribute("stop-color", "#FCA5A5");
-    stops[1].setAttribute("stop-color", "#EF4444");
-    if (pctEl) pctEl.style.color = "#FCA5A5";
-  } else if (realPct >= 80) {
-    stops[0].setAttribute("stop-color", "#FDE68A");
-    stops[1].setAttribute("stop-color", "#F59E0B");
-    if (pctEl) pctEl.style.color = "#FDE68A";
-  } else {
-    stops[0].setAttribute("stop-color", "#ffffff");
-    stops[1].setAttribute("stop-color", "#BAE6FD");
-    if (pctEl) pctEl.style.color = "";
-  }
 }
 
 // ── 렌더 ──

@@ -4,7 +4,7 @@
 import { extractText } from "./ocr.js";
 import { parseTransactions } from "./parse.js";
 import { CATS } from "./categorize.js";
-import { $, fmt, esc, showLoading } from "./dom.js";
+import { $, fmt, esc, showLoading, showToast } from "./dom.js";
 
 /**
  * 캡쳐 UI의 이벤트를 연결합니다.
@@ -149,7 +149,7 @@ export function setupCapture({ smartCategory, rememberRule, getUser, loadMonth, 
   async function importCaptured() {
     if (capItems.length === 0) return;
     if (!getUser()) {
-      alert("아직 연결 중이에요. 잠시 후 다시 시도하세요.");
+      showToast("아직 연결 중이에요. 잠시 후 다시 시도하세요.", "error");
       return;
     }
     showLoading(true);
@@ -198,7 +198,7 @@ export function setupCapture({ smartCategory, rememberRule, getUser, loadMonth, 
     } catch (e) {
       console.error(e);
       showLoading(false);
-      alert("저장 오류. 인터넷 연결을 확인해주세요.");
+      showToast("저장 오류. 인터넷 연결을 확인해주세요.", "error");
       return;
     }
     showLoading(false);
