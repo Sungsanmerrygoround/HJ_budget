@@ -158,6 +158,9 @@ export function setupCapture({ smartCategory, rememberRule, getUser, loadMonth, 
     // 각 항목을 날짜가 속한 '월'로 묶어서 그 월 문서에 추가
     const groups = {};
     for (const it of capItems) {
+      // 금액이 0 이하인 항목은 건너뜀(수동 추가와 동일 기준 — 사용자가 지운 칸 등)
+      const amount = Number(it.amount) || 0;
+      if (amount <= 0) continue;
       const d = new Date((it.dateISO || "") + "T00:00:00");
       const valid = !isNaN(d.getTime());
       const y = valid ? d.getFullYear() : getYear();
@@ -168,7 +171,7 @@ export function setupCapture({ smartCategory, rememberRule, getUser, loadMonth, 
       groups[key].entries.push({
         category: it.category,
         desc: it.desc,
-        amount: Number(it.amount) || 0,
+        amount,
         date: makeEntryDate(m, day, it.time || "00:00"),
       });
     }

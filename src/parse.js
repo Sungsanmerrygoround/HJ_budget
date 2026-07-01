@@ -30,6 +30,10 @@ const BALANCE_RATIO = 4;
 // (잔액들은 서로 0.x% 차이로 뭉쳐 있어, 0.8 기준이면 큰 지출[월세 등]과도 안전히 구분)
 const BALANCE_NEAR = 0.8;
 
+// 개인 가계부 한 건이 이 금액(1억원)보다 크면, OCR이 잔액을 붙였거나
+// 자릿수를 덧댄 것(예: "5,500"→"5500000000")으로 보고 최종 결과에서 제외한다.
+const MAX_AMOUNT = 100000000;
+
 // 상단 요약/안내 줄(거래가 아님)을 거르는 패턴.
 // 핵심 방어는 "첫 날짜 헤더 위는 전부 무시"(startIdx)이고, 이건 날짜 헤더가 없는 화면용 보조 장치다.
 // 가맹점 이름(예: "큰지출가맹점", "수입식품")을 오인해 버리지 않도록, 요약에만 나오는 문구로 좁힌다.
@@ -40,7 +44,11 @@ const SUMMARY_RE = /지난달|이번\s?달|비해|평균|쓰고\s?있|덜\s?쓰|
  * @returns {{expenses: Array, excludedIncome: number}}
  */
 export function parseTransactions(rawText) {
-  const lines = rawText
+  // 전각(full-width) 숫자·기호를 반각으로 정규화(NFKC): OCR이 "－５，５００원" 같은
+  // 전각 문자를 내보내면 금액 정규식이 통째로 놓쳐 거래가 통째로 사라진다.
+  // (반각 하이픈만 변환되고 en/em 대시는 그대로라, 아래 isMinus의 대시 처리도 유지됨)
+  const lines = String(rawText ?? "")
+    .normalize("NFKC")
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
@@ -232,8 +240,11 @@ export function parseTransactions(rawText) {
     }
   }
 
-  // 복구하지 못한 깨진(0원) 항목은 최종 결과에서 제외
-  return { expenses: expenses.filter((e) => e.amount > 0), excludedIncome };
+  // 복구하지 못한 깨진(0원) 항목과, 비상식적으로 큰(잔액·자릿수 오인) 금액은 제외
+  return {
+    expenses: expenses.filter((e) => e.amount > 0 && e.amount <= MAX_AMOUNT),
+    excludedIncome,
+  };
 }
 
 // ── 도우미 ──
