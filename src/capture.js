@@ -6,6 +6,7 @@ import { parseTransactions } from "./parse.js";
 import { CATS } from "./categorize.js";
 import { $, fmt, esc, showLoading, showToast } from "./dom.js";
 import { makeEntryDate } from "./datefmt.js";
+import { entryKey } from "./entryops.js";
 
 /**
  * 캡쳐 UI의 이벤트를 연결합니다.
@@ -14,14 +15,14 @@ import { makeEntryDate } from "./datefmt.js";
  *   rememberRule: (merchant: string, category: string) => Promise<void>,
  *   getUser: () => object|null,
  *   loadMonth: ((year: number, month: number) => Promise)|null,
- *   saveMonth: ((year: number, month: number, data: object) => Promise)|null,
+ *   appendEntries: ((year: number, month: number, entries: object[]) => Promise)|null,
  *   loadData: () => Promise<void>,
  *   switchView: (view: string) => void,
  *   getYear: () => number,
  *   getMonth: () => number,
  * }} deps
  */
-export function setupCapture({ smartCategory, rememberRule, getUser, loadMonth, saveMonth, loadData, switchView, getYear, getMonth }) {
+export function setupCapture({ smartCategory, rememberRule, getUser, loadMonth, appendEntries, loadData, switchView, getYear, getMonth }) {
   const capFile = $("capFile");
   const capPreview = $("capPreview");
   const capOcrBtn = $("capOcrBtn");
@@ -171,8 +172,7 @@ export function setupCapture({ smartCategory, rememberRule, getUser, loadMonth, 
         date: makeEntryDate(m, day, it.time || "00:00"),
       });
     }
-    // 중복 판별 키: 날짜 + 가맹점 + 금액
-    const keyOf = (e) => `${e.date}|${e.desc}|${e.amount}`;
+    // 중복 판별 키: 날짜 + 가맹점 + 금액 (entryops와 동일 규칙)
     let added = 0;
     let skipped = 0;
     try {
@@ -180,10 +180,10 @@ export function setupCapture({ smartCategory, rememberRule, getUser, loadMonth, 
         const g = groups[key];
         const data = await loadMonth(g.year, g.month);
         const existing = data.entries || [];
-        const seen = new Set(existing.map(keyOf)); // 이미 저장된 항목들
+        const seen = new Set(existing.map(entryKey)); // 이미 저장된 항목들
         const toAdd = [];
         for (const e of g.entries) {
-          const k = keyOf(e);
+          const k = entryKey(e);
           if (seen.has(k)) {
             skipped++; // 이미 있는 거래 → 건너뜀
             continue;
@@ -192,7 +192,8 @@ export function setupCapture({ smartCategory, rememberRule, getUser, loadMonth, 
           toAdd.push(e);
         }
         if (toAdd.length) {
-          await saveMonth(g.year, g.month, { entries: [...existing, ...toAdd], budget: data.budget || 0 });
+          // 원자적 추가: 다른 가족이 동시에 넣은 내역을 덮어쓰지 않음
+          await appendEntries(g.year, g.month, toAdd);
           added += toAdd.length;
         }
       }

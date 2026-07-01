@@ -74,7 +74,14 @@ header {
 }
 .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .header-left { display: flex; flex-direction: column; gap: 4px; }
+.header-title-row { display: flex; align-items: center; gap: 8px; }
 .header-title { font-family: var(--serif); font-size: 25px; color: var(--text); letter-spacing: -0.5px; line-height: 1.1; }
+.invite-btn {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+  width: 30px; height: 30px; padding: 0; flex: none; cursor: pointer;
+  font-size: 14px; line-height: 1; box-shadow: var(--shadow-xs);
+}
+.invite-btn:active { transform: scale(0.9); border-color: var(--primary); }
 .header-title span { color: var(--heart); font-size: 0.92em; margin: 0 1px; }
 .header-year {
   display: inline-flex; align-items: center; gap: 7px;

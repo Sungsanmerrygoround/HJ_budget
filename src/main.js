@@ -6,6 +6,8 @@ import { isConfigured } from "./firebase-config.js";
 import { $, fmt, esc, showLoading, showToast } from "./dom.js";
 import { sumAmount } from "./aggregate.js";
 import { dayOf, timeOf, makeEntryDate, clampDay } from "./datefmt.js";
+import { entryKey, replaceEntry, removeEntry } from "./entryops.js";
+import { shareLink } from "./household.js";
 import {
   renderWeekBars, renderCatChips, renderChart,
   renderCatList, renderEntryList, renderCalendar,
@@ -29,7 +31,9 @@ let learnMap = {}; // 학습형 분류: normalize(가맹점) -> 카테고리
 // ── Firebase 연결 (설정됐을 때만) ──
 let getUser = () => null;
 let loadMonth = null;
-let saveMonth = null;
+let appendEntries = null;
+let setBudget = null;
+let mutateEntries = null;
 let loadMerchantMap = null;
 let saveMerchantRule = null;
 
@@ -38,7 +42,9 @@ if (isConfigured) {
   const store = await import("./store.js");
   getUser = auth.getUser;
   loadMonth = store.loadMonth;
-  saveMonth = store.saveMonth;
+  appendEntries = store.appendEntries;
+  setBudget = store.setBudget;
+  mutateEntries = store.mutateEntries;
   loadMerchantMap = store.loadMerchantMap;
   saveMerchantRule = store.saveMerchantRule;
   await auth.autoSignIn(); // 익명 자동 로그인 (가족 공용)
@@ -102,35 +108,19 @@ async function loadData() {
   if (activeView === "chart") loadAndRenderTrend();
 }
 
-async function saveData() {
-  if (!saveMonth || !getUser()) {
+// 저장 가능한 상태(로그인 완료 + Firebase 연결)인지 확인합니다.
+function ensureReady() {
+  if (!getUser() || !appendEntries) {
     showToast("아직 연결 중이에요. 잠시 후 다시 시도하세요.", "error");
     return false;
   }
-  try {
-    await saveMonth(currentYear, currentMonth, {
-      entries: cachedEntries,
-      budget: cachedBudget,
-    });
-    return true;
-  } catch (e) {
-    console.error(e);
-    showToast("저장 오류. 인터넷 연결을 확인해주세요.", "error");
-    return false;
-  }
+  return true;
 }
 
-// 저장 직전, 서버 최신본을 받아 캐시를 갱신합니다.
-// (다른 가족 구성원이 동시에 추가한 내역을 덮어쓰지 않도록)
-async function refreshLatest() {
-  if (!loadMonth || !getUser()) return;
-  try {
-    const fresh = await loadMonth(currentYear, currentMonth);
-    cachedEntries = fresh.entries;
-    cachedBudget = fresh.budget;
-  } catch (e) {
-    console.warn("최신본 조회 실패", e);
-  }
+// 저장 오류를 사용자에게 알립니다(네트워크 문제 등).
+function reportSaveError(e) {
+  console.error(e);
+  showToast("저장 오류. 인터넷 연결을 확인해주세요.", "error");
 }
 
 // ── 연도 이동 ──
@@ -204,8 +194,15 @@ function render() {
   renderCatChips(entries);
   renderChart(entries);
   renderCatList(entries);
+  renderList();
 
-  // 검색 필터 적용
+  if (activeView === "cal") renderCalendar(cachedEntries, currentYear, currentMonth);
+}
+
+// 검색어를 적용해 '내역' 목록만 그립니다.
+// 검색은 목록에만 영향을 주므로, 타이핑마다 차트·게이지까지 다시 그리지 않습니다.
+function renderList() {
+  const entries = cachedEntries;
   const tagged = entries.map((e, i) => ({ ...e, _origIdx: i }));
   const visible = searchQuery
     ? tagged.filter((e) =>
@@ -216,8 +213,6 @@ function render() {
     ? "검색 결과가 없어요"
     : "아직 기록이 없어요 💙<br>오늘 첫 소비를 담아볼까요?";
   renderEntryList(visible, emptyMsg);
-
-  if (activeView === "cal") renderCalendar(cachedEntries, currentYear, currentMonth);
 }
 
 // ── 추가 ──
@@ -229,6 +224,7 @@ async function addEntry() {
     showToast("내용과 금액을 입력해주세요!", "error");
     return;
   }
+  if (!ensureReady()) return;
   // 날짜: 보고 있는 달(currentMonth)로 고정하고, 고른 '일'만 사용 (월 불일치 방지)
   const d = new Date();
   const hm = `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -241,15 +237,18 @@ async function addEntry() {
 
   const entry = { category, desc, amount, date };
 
-  // 동시 사용 대비: 저장 직전 최신본을 받아 거기에 추가 (다른 사람 내역 유실 방지)
-  await refreshLatest();
-  cachedEntries.push(entry);
-  const ok = await saveData();
-  render();
+  // 원자적 추가: 다른 가족이 동시에 넣은 내역을 덮어쓰지 않음
+  try {
+    await appendEntries(currentYear, currentMonth, [entry]);
+  } catch (e) {
+    reportSaveError(e);
+    return;
+  }
   $("desc").value = "";
   $("amount").value = "";
   syncAddDate();
-  if (ok) showToast("✅ 추가됐어요!");
+  await loadData(); // 서버 최신본으로 갱신(다른 가족 추가분 포함) + 재렌더
+  showToast("✅ 추가됐어요!");
 }
 
 // 현재 보고 있는 월(currentYear/currentMonth)의 날짜 범위
@@ -327,8 +326,12 @@ async function saveEdit() {
     showToast("내용과 금액을 입력해주세요!", "error");
     return;
   }
+  if (!ensureReady()) return;
+  const target = cachedEntries[editingIndex];
+  if (!target) return;
+  const oldKey = entryKey(target); // 서버 최신본에서 이 항목을 찾을 키
   // 날짜: 보고 있는 달로 고정, 고른 '일'만 반영 (월 불일치 방지)
-  const oldDate = cachedEntries[editingIndex].date;
+  const oldDate = target.date;
   const timePart = timeOf(oldDate);
   const { last } = monthBounds();
   const dateVal = $("editDate").value;
@@ -336,23 +339,37 @@ async function saveEdit() {
   if (!day || isNaN(day)) day = 1;
   day = clampDay(day, last);
   const newDate = makeEntryDate(currentMonth, day, timePart);
+  const newEntry = { ...target, desc, amount, category, date: newDate };
 
-  cachedEntries[editingIndex] = { ...cachedEntries[editingIndex], desc, amount, category, date: newDate };
-  const ok = await saveData();
+  // 트랜잭션: 최신 배열에서 키로 찾아 교체 (동시 편집에도 엉뚱한 항목 안 건드림)
+  try {
+    await mutateEntries(currentYear, currentMonth, (arr) => replaceEntry(arr, oldKey, newEntry));
+  } catch (e) {
+    reportSaveError(e);
+    return;
+  }
   rememberRule(desc, category);
   closeEditModal();
-  render();
-  if (ok) showToast("✅ 수정했어요!");
+  await loadData();
+  showToast("✅ 수정했어요!");
 }
 
 async function deleteEntry() {
   if (editingIndex < 0) return;
   if (!confirm("이 내역을 삭제할까요?")) return;
-  cachedEntries.splice(editingIndex, 1);
-  const ok = await saveData();
+  if (!ensureReady()) return;
+  const target = cachedEntries[editingIndex];
+  if (!target) return;
+  const oldKey = entryKey(target);
+  try {
+    await mutateEntries(currentYear, currentMonth, (arr) => removeEntry(arr, oldKey));
+  } catch (e) {
+    reportSaveError(e);
+    return;
+  }
   closeEditModal();
-  render();
-  if (ok) showToast("🗑 삭제했어요");
+  await loadData();
+  showToast("🗑 삭제했어요");
 }
 
 function closeEditModal() {
@@ -370,13 +387,17 @@ async function saveBudget() {
     showToast("예산을 올바르게 입력해주세요!", "error");
     return;
   }
-  // 예산만 바꾸므로, 동시 추가된 내역을 덮어쓰지 않도록 최신 내역을 먼저 받음
-  await refreshLatest();
-  cachedBudget = val;
+  if (!ensureReady()) return;
+  // 예산만 원자적으로 갱신 — entries는 건드리지 않아 동시 추가분과 충돌 없음
+  try {
+    await setBudget(currentYear, currentMonth, val);
+  } catch (e) {
+    reportSaveError(e);
+    return;
+  }
   $("budgetInput").value = "";
-  const ok = await saveData();
-  render();
-  if (ok) showToast("✅ 예산을 설정했어요!");
+  await loadData();
+  showToast("✅ 예산을 설정했어요!");
 }
 
 // ── 최근 6개월 추이 로드 ──
@@ -447,7 +468,7 @@ function wireEvents() {
 
   $("searchInput").addEventListener("input", (e) => {
     searchQuery = e.target.value.trim();
-    render();
+    renderList(); // 검색은 목록만 갱신 (차트·게이지 재렌더 안 함)
   });
 
   setupCapture({
@@ -455,12 +476,26 @@ function wireEvents() {
     rememberRule,
     getUser,
     loadMonth,
-    saveMonth,
+    appendEntries,
     loadData,
     switchView,
     getYear: () => currentYear,
     getMonth: () => currentMonth,
   });
+
+  // 가족 초대 링크 복사
+  const invite = $("inviteBtn");
+  if (invite) {
+    invite.addEventListener("click", async () => {
+      const link = shareLink();
+      try {
+        await navigator.clipboard.writeText(link);
+        showToast("🔗 가족 초대 링크를 복사했어요!");
+      } catch {
+        prompt("이 링크를 가족에게 보내세요:", link); // 클립보드가 막힌 환경
+      }
+    });
+  }
 }
 
 // ════════ 시작 ════════
