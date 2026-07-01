@@ -44,3 +44,16 @@ export function shareLink(hid = getHouseholdId()) {
   u.searchParams.set("h", hid);
   return u.toString();
 }
+
+// 이 기기가 사용할 가족 코드를 직접 지정합니다(다른 가족 코드로 전환할 때 사용).
+//
+// 왜 필요? iOS 16.4+는 "홈 화면에 추가"한 아이콘을 열 때 manifest.webmanifest의
+// start_url("./")을 그대로 써서, 주소창에 ?h=코드가 있어도 실행 시 사라집니다.
+// 홈 화면 앱에서는 URL로 코드를 못 넘기니, 코드를 직접 입력해 전환하는 경로가 필요합니다.
+export function setHouseholdId(hid) {
+  try {
+    localStorage.setItem(KEY, hid);
+  } catch {
+    // 저장 실패해도 최소한 이번 세션에서는 넘어갈 수 있게 무시
+  }
+}

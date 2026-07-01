@@ -7,7 +7,7 @@ import { $, fmt, esc, showLoading, showToast } from "./dom.js";
 import { sumAmount } from "./aggregate.js";
 import { dayOf, timeOf, makeEntryDate, clampDay } from "./datefmt.js";
 import { entryKey, replaceEntry, removeEntry } from "./entryops.js";
-import { shareLink } from "./household.js";
+import { getHouseholdId, shareLink, setHouseholdId } from "./household.js";
 import {
   renderWeekBars, renderCatChips, renderChart,
   renderCatList, renderEntryList, renderCalendar,
@@ -487,12 +487,25 @@ function wireEvents() {
   const invite = $("inviteBtn");
   if (invite) {
     invite.addEventListener("click", async () => {
-      const link = shareLink();
+      const current = getHouseholdId();
+      const link = shareLink(current);
       try {
         await navigator.clipboard.writeText(link);
         showToast("🔗 가족 초대 링크를 복사했어요!");
       } catch {
-        prompt("이 링크를 가족에게 보내세요:", link); // 클립보드가 막힌 환경
+        // 클립보드가 막힌 환경: 링크를 눈으로 보여줌
+      }
+      // iOS 홈 화면 앱은 ?h= 링크로 열어도 manifest의 start_url("./")을 써서
+      // 코드가 전달되지 않으므로, 직접 붙여넣어 전환할 수 있는 창구를 함께 제공.
+      const pasted = prompt(
+        "가족 초대 링크를 복사했어요:\n" + link +
+        "\n\n※ 홈 화면 앱에서 다른 기기의 코드로 바꾸려면, 아래에 그 코드를 붙여넣고 확인을 누르세요.",
+        current
+      );
+      if (pasted && pasted.trim() && pasted.trim() !== current) {
+        setHouseholdId(pasted.trim());
+        showToast("✅ 가족 코드를 바꿨어요. 새로고침할게요...");
+        location.reload();
       }
     });
   }
