@@ -501,9 +501,12 @@ function wireEvents() {
         current
       );
       if (pasted && pasted.trim() && pasted.trim() !== current) {
-        setHouseholdId(pasted.trim());
-        showToast("✅ 가족 코드를 바꿨어요. 새로고침할게요...");
-        location.reload();
+        if (setHouseholdId(pasted.trim())) {
+          showToast("✅ 가족 코드를 바꿨어요. 새로고침할게요...");
+          location.reload();
+        } else {
+          showToast("코드 형식이 올바르지 않아요.", "error");
+        }
       }
     });
   }

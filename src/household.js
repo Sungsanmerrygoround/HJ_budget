@@ -14,11 +14,20 @@ import { genId } from "./id.js";
 
 export const KEY = "hj_household";
 
+// 가족 코드로 허용하는 형식: 영숫자·하이픈·밑줄(1~128자).
+// UUID(crypto.randomUUID)와 base36 폴백 코드가 모두 이 범위 안에 든다.
+// hid는 Firestore 경로 세그먼트 doc(db,"households",hid,...)로 쓰이므로,
+// "/"·공백·제어문자가 섞이면 세그먼트 수가 어긋나 doc()이 예외를 던지고 앱이 깨진다.
+// (예: 악의적 초대 링크 ?h=a/b/c 로 수신자 앱을 망가뜨리는 것을 막는다.)
+export function isValidHid(s) {
+  return typeof s === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(s);
+}
+
 /** 이 기기에서 사용할 가족 코드를 돌려줍니다(없으면 생성해 저장). */
 export function getHouseholdId() {
   try {
     const fromUrl = new URLSearchParams(location.search).get("h");
-    if (fromUrl) {
+    if (fromUrl && isValidHid(fromUrl)) {
       localStorage.setItem(KEY, fromUrl); // 공유 링크로 들어옴 → 그 코드를 채택
       // ?h= 는 "채택"용 1회성 신호일 뿐, 계속 남아있으면 다음에 수동으로 다른
       // 코드로 전환해도(setHouseholdId) 새로고침할 때마다 다시 이 코드로 되돌아감.
@@ -29,7 +38,7 @@ export function getHouseholdId() {
       return fromUrl;
     }
     const saved = localStorage.getItem(KEY);
-    if (saved) return saved;
+    if (saved && isValidHid(saved)) return saved; // 손상된 값이면 무시하고 새로 발급(자가 치유)
     const fresh = genId();
     localStorage.setItem(KEY, fresh);
     return fresh;
@@ -52,9 +61,12 @@ export function shareLink(hid = getHouseholdId()) {
 // start_url("./")을 그대로 써서, 주소창에 ?h=코드가 있어도 실행 시 사라집니다.
 // 홈 화면 앱에서는 URL로 코드를 못 넘기니, 코드를 직접 입력해 전환하는 경로가 필요합니다.
 export function setHouseholdId(hid) {
+  if (!isValidHid(hid)) return false; // 경로를 깨뜨릴 잘못된 코드는 거부
   try {
     localStorage.setItem(KEY, hid);
+    return true;
   } catch {
-    // 저장 실패해도 최소한 이번 세션에서는 넘어갈 수 있게 무시
+    // 저장 실패해도(사생활 모드 등) 이번 세션에서는 넘어갈 수 있게 무시
+    return false;
   }
 }
