@@ -22,7 +22,8 @@ API 키·서버·결제 없이 **전부 무료**로 동작합니다.
 | 📊 **차트** | 카테고리별 지출 도넛 차트 + 막대 상세 |
 | 📅 **달력 뷰** | 일별 소비 금액을 달력에서 한눈에 |
 | ✏️ **수정/삭제** | 내역 탭해서 카테고리·내용·금액·날짜 수정 |
-| ☁️ **클라우드 동기화** | 접속만 하면 익명 자동 로그인 → 가족 모두 폰·PC 어디서나 같은 데이터 |
+| 👨‍👩‍👧 **가족 코드 공유** | 추측 불가능한 가족 코드(hid)로 데이터를 나눠 담고, 🔗 초대 링크를 받은 가족끼리만 같은 가계부를 공유 |
+| ☁️ **클라우드 동기화** | 접속하면 익명 자동 로그인 → 같은 가족 코드를 쓰는 폰·PC 어디서나 같은 데이터. 두 사람이 동시에 편집해도 유실 없이 안전(원자적 저장) |
 | 📱 **PWA** | 홈 화면에 앱처럼 설치 + 기본 오프라인 |
 
 ---
@@ -55,27 +56,37 @@ API 키·서버·결제 없이 **전부 무료**로 동작합니다.
 확인·수정 목록
    │  날짜가 속한 '월'로 그룹핑
    ▼
-Firestore  users/{uid}/budgets/{년_월}  ──▶  차트·달력·예산에 반영
+Firestore  households/{hid}/budgets/{년_월}  ──▶  차트·달력·예산에 반영
 ```
 
 ## 📁 구조
 
 ```
 snap-budget/
-├─ index.html              # 앱 화면
+├─ index.html              # 앱 화면 (헤더·탭·뷰·모달 마크업)
 ├─ styles.css
-├─ manifest.webmanifest    # PWA
-├─ sw.js                   # 서비스워커
-├─ icon.svg
+├─ manifest.webmanifest    # PWA (홈 화면 설치 정보)
+├─ sw.js                   # 서비스워커 (오프라인 캐시)
+├─ firestore.rules         # Firestore 보안 규칙 (households/{hid}만 허용)
+├─ icon.svg · icon-*.png   # 앱 아이콘
+├─ test-*.mjs              # 순수 로직 검증 스크립트 (node로 실행)
 └─ src/
-   ├─ main.js              # 앱 컨트롤러 (탭·예산·차트·달력·수정·캡쳐 조립)
-   ├─ ocr.js               # Tesseract.js OCR
-   ├─ parse.js             # OCR 원문 → 거래 구조화 (정규식)
-   ├─ categorize.js        # 카테고리 정의 + 자동 분류
-   ├─ store.js             # Firestore 월별 저장/조회 (가족 공용 경로)
-   ├─ auth.js              # 익명 자동 로그인
+   ├─ main.js              # 앱 컨트롤러 (상태·라우팅, 렌더/캡쳐 조립)
+   ├─ household.js         # 가족 코드(hid) 관리 — URL ?h= → localStorage → 생성
+   ├─ id.js                # 추측 불가능한 고유 id 생성 (공용)
+   ├─ auth.js              # Firebase 익명 자동 로그인
    ├─ firebase.js          # Firebase 초기화
-   └─ firebase-config.js   # Firebase 설정 (apiKey는 공개 식별자라 커밋 OK)
+   ├─ firebase-config.js   # Firebase 설정 (apiKey는 공개 식별자라 커밋 OK)
+   ├─ store.js             # Firestore 저장/조회 (households/{hid} 경로, 원자적 쓰기)
+   ├─ entryops.js          # 내역 배열을 '키로 찾아' 교체/삭제하는 순수 함수
+   ├─ ocr.js               # Tesseract.js OCR + 이미지 전처리
+   ├─ parse.js             # OCR 원문 → 거래 구조화 (정규식 + 잔액 산수 복구)
+   ├─ categorize.js        # 9종 카테고리 정의 + 가맹점 자동 분류
+   ├─ capture.js           # 캡쳐 OCR 흐름 (미리보기·인식·확인·일괄 추가)
+   ├─ aggregate.js         # 합계·카테고리별 통계 (한 번의 순회로 계산)
+   ├─ renderer.js          # 차트·달력·목록·게이지 렌더 (순수 함수)
+   ├─ datefmt.js           # 날짜 문자열 유틸
+   └─ dom.js               # DOM 도우미 ($, fmt, esc, 토스트, 로딩바)
 ```
 
 ---
@@ -92,9 +103,10 @@ snap-budget/
    npx serve -p 3000     # 또는: python -m http.server 3000
    ```
 5. 브라우저에서 `http://localhost:3000` → 접속하면 익명 로그인되어 바로 사용
+6. 가족과 공유하려면 헤더의 🔗 버튼으로 **초대 링크(`?h=가족코드`)를 복사**해 전달 → 링크를 연 가족은 같은 가족 코드를 채택해 같은 가계부를 공유
 
 > 🔒 `firebaseConfig`의 apiKey는 비밀이 아니라 공개 식별자입니다. 보안은 Firestore 규칙(로그인된 요청만 허용)이 담당합니다.
-> 가족끼리 공용 데이터를 공유하는 구조라, 접속한 사람은 같은 가계부를 함께 봅니다.
+> 데이터는 `households/{가족코드}` 아래로 나눠 담기며, **추측 불가능한 가족 코드(hid)를 아는 가족끼리만** 같은 가계부를 봅니다(링크 공유형 모델). 코드를 모르는 외부인은 접근할 수 없습니다.
 
 ### GitHub Pages 배포 시
 - Firebase **Authentication → 설정 → 승인된 도메인**에 `<username>.github.io` 추가
@@ -105,8 +117,10 @@ snap-budget/
 
 - 브라우저 OCR(Tesseract.js)로 한글 거래내역을 인식하고, **정규식으로 노이즈를 걸러 구조화**하는 과정
 - OCR은 완벽하지 않으므로 **"사람이 확인·수정하는 관문"** 을 둬 데이터 품질을 확보
-- **익명 로그인 + Firestore 규칙**으로, 별도 가입 없이도 "로그인된 요청만 허용"해 가족 공용 데이터를 보호
+- **익명 로그인 + Firestore 규칙**으로, 별도 가입 없이도 "로그인된 요청만 허용"해 데이터를 보호
 - apiKey는 비밀이 아니라는 점, 보안은 클라이언트 키가 아니라 **서버 규칙**에서 온다는 점
+- 전역 공용에서 **`households/{가족코드}` 격리 + 링크 공유형 모델**로 옮겨, 코드를 아는 가족끼리만 공유하도록 좁힌 과정
+- 문서 전체를 덮어쓰던 저장을 **용도별 원자적 연산**(추가=arrayUnion / 예산=merge / 수정·삭제=트랜잭션)으로 바꿔, 두 사람이 동시에 편집해도 유실이 없게 만든 것
 
 ---
 
