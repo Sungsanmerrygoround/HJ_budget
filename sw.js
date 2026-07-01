@@ -2,7 +2,7 @@
 // 앱 골격(HTML/CSS/JS/아이콘)을 캐시해 두 번째 방문부터 빠르게 띄웁니다.
 // 외부 CDN(Tesseract/Chart/Firebase)과 Firestore 요청은 그냥 네트워크로 통과시킵니다.
 
-const CACHE = "hj-budget-v15";
+const CACHE = "hj-budget-v16";
 const ASSETS = [
   "./",
   "./index.html",
@@ -15,6 +15,7 @@ const ASSETS = [
   "./src/dom.js",
   "./src/datefmt.js",
   "./src/entryops.js",
+  "./src/id.js",
   "./src/household.js",
   "./src/renderer.js",
   "./src/aggregate.js",
@@ -40,6 +41,8 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
+  // GET만 캐시 대상 (cache.put은 POST 등 비-GET 요청에서 예외를 던짐)
+  if (e.request.method !== "GET") return;
   // 같은 출처(우리 앱 파일)만 처리, 외부 CDN/Firestore는 그냥 통과
   if (url.origin !== location.origin) return;
   // 네트워크 우선: 항상 최신을 받아오고, 오프라인일 때만 캐시로 대체

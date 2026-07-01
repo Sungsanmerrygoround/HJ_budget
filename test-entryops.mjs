@@ -1,5 +1,6 @@
 // 검증 스크립트: node test-entryops.mjs
 import { entryKey, replaceEntry, removeEntry } from "./src/entryops.js";
+import { genId } from "./src/id.js";
 
 let pass = 0, fail = 0;
 function check(name, got, expected) {
@@ -45,6 +46,16 @@ check("removeEntry 중복 키 첫 번째만",
   removeEntry(dup, entryKey(A)).length, 2);
 
 check("removeEntry 원본 불변", (() => { const s = [A, B]; removeEntry(s, entryKey(A)); return s.length; })(), 2);
+
+// id가 있으면 필드값이 같아도 서로 다른 키를 가짐 (arrayUnion 중복 오인 방지)
+const D1 = { ...A, id: genId() };
+const D2 = { ...A, id: genId() }; // A와 같은 date/desc/amount지만 id가 다름
+check("entryKey id 우선", entryKey(D1) !== entryKey(D2), true);
+check("entryKey id 형식", entryKey(D1), D1.id);
+
+check("replaceEntry id로 정확히 특정 (같은 필드값의 다른 항목과 구분)",
+  replaceEntry([D1, D2], entryKey(D2), { ...D2, amount: 1 }).map((e) => e.amount),
+  [5500, 1]);
 
 console.log(`\n결과: ${pass} 통과 / ${fail} 실패`);
 process.exit(fail ? 1 : 0);

@@ -7,6 +7,7 @@ import { $, fmt, esc, showLoading, showToast } from "./dom.js";
 import { sumAmount } from "./aggregate.js";
 import { dayOf, timeOf, makeEntryDate, clampDay } from "./datefmt.js";
 import { entryKey, replaceEntry, removeEntry } from "./entryops.js";
+import { genId } from "./id.js";
 import { getHouseholdId, shareLink, setHouseholdId } from "./household.js";
 import {
   renderWeekBars, renderCatChips, renderChart,
@@ -24,7 +25,7 @@ let currentMonth = now.getMonth(); // 0~11
 let cachedEntries = [];
 let cachedBudget = 0;
 let activeView = "add";
-let editingIndex = -1;
+let editingEntry = null; // 편집 모달을 연 시점의 항목 스냅샷 (저장 시점의 cachedEntries 변경에 영향받지 않음)
 let searchQuery = '';
 let learnMap = {}; // 학습형 분류: normalize(가맹점) -> 카테고리
 
@@ -229,13 +230,10 @@ async function addEntry() {
   const d = new Date();
   const hm = `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
   const { last } = monthBounds();
-  const dateVal = $("entryDate").value;
-  let day = dateVal ? parseInt(dateVal.split("-")[2]) : d.getDate();
-  if (!day || isNaN(day)) day = d.getDate();
-  day = clampDay(day, last);
+  const day = resolveDay($("entryDate").value, d.getDate(), last);
   const date = makeEntryDate(currentMonth, day, hm);
 
-  const entry = { category, desc, amount, date };
+  const entry = { category, desc, amount, date, id: genId() };
 
   // 원자적 추가: 다른 가족이 동시에 넣은 내역을 덮어쓰지 않음
   try {
@@ -260,6 +258,14 @@ function monthBounds() {
     max: `${currentYear}-${mm}-${String(last).padStart(2, "0")}`,
     last,
   };
+}
+
+// 날짜 입력값('YYYY-MM-DD')에서 '일'을 뽑아 월 범위(last)로 맞춥니다.
+// 입력이 비었거나 깨졌으면 fallbackDay(항상 유효한 값)를 씁니다.
+function resolveDay(inputVal, fallbackDay, last) {
+  let day = inputVal ? parseInt(inputVal.split("-")[2]) : fallbackDay;
+  if (!day || isNaN(day)) day = fallbackDay;
+  return clampDay(day, last);
 }
 
 // 추가 폼의 날짜 입력을 "보고 있는 달"에 맞춰 동기화 (월 불일치 방지)
@@ -302,7 +308,7 @@ function openModal(cat) {
 function openEditModal(index) {
   const e = cachedEntries[index];
   if (!e) return;
-  editingIndex = index;
+  editingEntry = e; // 저장 시점까지 이 스냅샷으로 항목을 식별 (그사이 목록이 갱신돼도 안전)
   $("editCategory").value = e.category;
   $("editDesc").value = e.desc;
   $("editAmount").value = e.amount;
@@ -318,7 +324,7 @@ function openEditModal(index) {
 }
 
 async function saveEdit() {
-  if (editingIndex < 0) return;
+  if (!editingEntry) return;
   const desc = $("editDesc").value.trim();
   const amount = parseInt($("editAmount").value);
   const category = $("editCategory").value;
@@ -327,19 +333,17 @@ async function saveEdit() {
     return;
   }
   if (!ensureReady()) return;
-  const target = cachedEntries[editingIndex];
-  if (!target) return;
+  const target = editingEntry;
   const oldKey = entryKey(target); // 서버 최신본에서 이 항목을 찾을 키
   // 날짜: 보고 있는 달로 고정, 고른 '일'만 반영 (월 불일치 방지)
   const oldDate = target.date;
   const timePart = timeOf(oldDate);
   const { last } = monthBounds();
-  const dateVal = $("editDate").value;
-  let day = dateVal ? parseInt(dateVal.split("-")[2]) : dayOf(oldDate);
-  if (!day || isNaN(day)) day = 1;
-  day = clampDay(day, last);
+  const origDay = dayOf(oldDate);
+  const day = resolveDay($("editDate").value, (!origDay || isNaN(origDay)) ? 1 : origDay, last);
   const newDate = makeEntryDate(currentMonth, day, timePart);
-  const newEntry = { ...target, desc, amount, category, date: newDate };
+  // id가 없던 옛 항목이면 이번 편집에 id를 부여(자가 치유): 이후 arrayUnion 중복 오인·수정 오조준 방지
+  const newEntry = { ...target, desc, amount, category, date: newDate, id: target.id || genId() };
 
   // 트랜잭션: 최신 배열에서 키로 찾아 교체 (동시 편집에도 엉뚱한 항목 안 건드림)
   try {
@@ -355,12 +359,10 @@ async function saveEdit() {
 }
 
 async function deleteEntry() {
-  if (editingIndex < 0) return;
+  if (!editingEntry) return;
   if (!confirm("이 내역을 삭제할까요?")) return;
   if (!ensureReady()) return;
-  const target = cachedEntries[editingIndex];
-  if (!target) return;
-  const oldKey = entryKey(target);
+  const oldKey = entryKey(editingEntry);
   try {
     await mutateEntries(currentYear, currentMonth, (arr) => removeEntry(arr, oldKey));
   } catch (e) {
@@ -374,7 +376,7 @@ async function deleteEntry() {
 
 function closeEditModal() {
   $("editModalOverlay").classList.remove("open");
-  editingIndex = -1;
+  editingEntry = null;
 }
 function closeCatModal() {
   $("modalOverlay").classList.remove("open");
@@ -405,17 +407,19 @@ async function loadAndRenderTrend() {
   if (!loadMonth || !getUser()) return;
   const section = $("trendSection");
   if (!section) return;
-  const months = [];
+  const targets = [];
   for (let i = 5; i >= 0; i--) {
     let y = currentYear, m = currentMonth - i;
     while (m < 0) { m += 12; y--; }
-    try {
-      const data = await loadMonth(y, m);
-      months.push({ label: `${m + 1}월`, total: sumAmount(data.entries) });
-    } catch {
-      months.push({ label: `${m + 1}월`, total: 0 });
-    }
+    targets.push({ y, m });
   }
+  // 6개월치는 서로 독립적이라 병렬 조회. 현재 보고 있는 달은 이미 cachedEntries에 있으니 재조회 생략.
+  const results = await Promise.all(targets.map(({ y, m }) =>
+    (y === currentYear && m === currentMonth)
+      ? Promise.resolve({ entries: cachedEntries })
+      : loadMonth(y, m).catch(() => ({ entries: [] }))
+  ));
+  const months = targets.map(({ m }, i) => ({ label: `${m + 1}월`, total: sumAmount(results[i].entries) }));
   section.hidden = false;
   renderMonthlyTrend(months);
 }
@@ -444,15 +448,13 @@ function wireEvents() {
     if (e.target === $("modalOverlay")) closeCatModal();
   });
 
-  // 동적 목록들 (이벤트 위임)
-  $("entryList").addEventListener("click", (e) => {
+  // 동적 목록들 (이벤트 위임) — 내역/달력 목록 모두 같은 클릭 처리
+  const onEntryClick = (e) => {
     const item = e.target.closest("[data-index]");
     if (item) openEditModal(Number(item.dataset.index));
-  });
-  $("dayEntryList").addEventListener("click", (e) => {
-    const item = e.target.closest("[data-index]");
-    if (item) openEditModal(Number(item.dataset.index));
-  });
+  };
+  $("entryList").addEventListener("click", onEntryClick);
+  $("dayEntryList").addEventListener("click", onEntryClick);
   $("catList").addEventListener("click", (e) => {
     const item = e.target.closest("[data-cat]");
     if (item) openModal(item.dataset.cat);

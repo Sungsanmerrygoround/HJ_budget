@@ -10,14 +10,9 @@
 //   2) localStorage 저장값 → 이 기기에서 이미 쓰던 코드
 //   3) 없으면 새로 생성     → 첫 사용자(이 코드를 가족과 공유하면 됨)
 
-const KEY = "hj_household";
+import { genId } from "./id.js";
 
-/** 추측 불가능한 새 가족 코드를 만듭니다. */
-function generateId() {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-  // 아주 옛 브라우저 대비 폴백
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
+export const KEY = "hj_household";
 
 /** 이 기기에서 사용할 가족 코드를 돌려줍니다(없으면 생성해 저장). */
 export function getHouseholdId() {
@@ -25,16 +20,22 @@ export function getHouseholdId() {
     const fromUrl = new URLSearchParams(location.search).get("h");
     if (fromUrl) {
       localStorage.setItem(KEY, fromUrl); // 공유 링크로 들어옴 → 그 코드를 채택
+      // ?h= 는 "채택"용 1회성 신호일 뿐, 계속 남아있으면 다음에 수동으로 다른
+      // 코드로 전환해도(setHouseholdId) 새로고침할 때마다 다시 이 코드로 되돌아감.
+      // 채택 즉시 주소창에서 지워 재로드 시 localStorage 값이 우선하게 함.
+      const u = new URL(location.href);
+      u.searchParams.delete("h");
+      history.replaceState(null, "", u.toString());
       return fromUrl;
     }
     const saved = localStorage.getItem(KEY);
     if (saved) return saved;
-    const fresh = generateId();
+    const fresh = genId();
     localStorage.setItem(KEY, fresh);
     return fresh;
   } catch {
     // localStorage가 막힌 사생활 모드 등: 세션 한정 코드라도 발급
-    return generateId();
+    return genId();
   }
 }
 
