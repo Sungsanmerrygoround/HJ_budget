@@ -31,26 +31,16 @@
   <div class="card">
     <label>가족 코드(hid) — 이 코드 아래로 데이터를 복사합니다</label>
     <input id="hid" />
-    <div class="row">
-      <div>
-        <label>시작 연도</label>
-        <input id="fromYear" type="number" value="2023" />
-      </div>
-      <div>
-        <label>끝 연도</label>
-        <input id="toYear" type="number" value="2028" />
-      </div>
-    </div>
     <button id="run">마이그레이션 시작</button>
   </div>
 
-  <pre id="log">준비됨. '마이그레이션 시작'을 누르세요.\n</pre>
+  <pre id="log">준비됨. '마이그레이션 시작'을 누르세요.</pre>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
     import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
     import {
-      getFirestore, doc, getDoc, setDoc,
+      getFirestore, doc, getDoc, setDoc, collection, getDocs,
     } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
     import { firebaseConfig } from "./src/firebase-config.js";
 
@@ -69,8 +59,6 @@
     document.getElementById("run").addEventListener("click", async () => {
       const btn = document.getElementById("run");
       const hid = document.getElementById("hid").value.trim();
-      const fromYear = parseInt(document.getElementById("fromYear").value);
-      const toYear = parseInt(document.getElementById("toYear").value);
       if (!hid) { alert("가족 코드(hid)를 입력하세요."); return; }
       btn.disabled = true;
       try {
@@ -78,30 +66,30 @@
         await signInAnonymously(auth);
         log("✅ 로그인 완료. 대상 가족코드: " + hid);
 
-        let copied = 0, skipped = 0, empty = 0;
-        for (let y = fromYear; y <= toYear; y++) {
-          for (let m = 0; m < 12; m++) {
-            const id = `${y}_${m}`;
-            const oldSnap = await getDoc(doc(db, "budgets", id));
-            if (!oldSnap.exists()) { empty++; continue; }
-            const data = oldSnap.data();
-            const hasData = (data.entries && data.entries.length) || data.budget;
-            if (!hasData) { empty++; continue; }
+        log("🔍 옛 경로(budgets) 조회 중...");
+        const snap = await getDocs(collection(db, "budgets"));
+        log(`📚 문서 ${snap.size}개 발견. 복사 시작...`);
 
-            const target = doc(db, "households", hid, "budgets", id);
-            const tSnap = await getDoc(target);
-            if (tSnap.exists()) {
-              skipped++;
-              log(`⏭️  ${id} — 대상에 이미 있음, 건너뜀`);
-              continue;
-            }
-            await setDoc(target, {
-              entries: data.entries || [],
-              budget: data.budget || 0,
-            });
-            copied++;
-            log(`📄 ${id} — 내역 ${(data.entries || []).length}건 복사`);
+        let copied = 0, skipped = 0, empty = 0;
+        for (const oldSnap of snap.docs) {
+          const id = oldSnap.id; // "년_월(0~11)"
+          const data = oldSnap.data();
+          const hasData = (data.entries && data.entries.length) || data.budget;
+          if (!hasData) { empty++; continue; }
+
+          const target = doc(db, "households", hid, "budgets", id);
+          const tSnap = await getDoc(target);
+          if (tSnap.exists()) {
+            skipped++;
+            log(`⏭️  ${id} — 대상에 이미 있음, 건너뜀`);
+            continue;
           }
+          await setDoc(target, {
+            entries: data.entries || [],
+            budget: data.budget || 0,
+          });
+          copied++;
+          log(`📄 ${id} — 내역 ${(data.entries || []).length}건 복사`);
         }
 
         // 학습형 분류(merchantMap) 복사
