@@ -1,23 +1,18 @@
 // Firestore 보안 규칙 (최종본)
-// Firebase 콘솔 → Firestore Database → 규칙(Rules) 탭에 붙여넣고 "게시(Publish)".
+// households/{가족코드} 아래 데이터에만, 로그인(익명 포함)된 요청이 접근 가능.
+// 옛 경로(budgets/·meta/)는 마이그레이션이 끝나 더 이상 허용하지 않습니다(암묵적 거부).
 //
-// 뜻: (익명 포함) 로그인된 요청만, households/{가족코드} 아래 데이터에 접근 가능.
-//     데이터가 가족코드(hid)별로 나뉘어, 코드를 아는 가족만 같은 가계부를 공유합니다.
-//     예전처럼 최상위 budgets/ 에 두지 않으므로, 사이트 URL만 아는 외부인이
-//     전체 데이터를 통째로 열람하던 문제를 막습니다.
-//
-// ※ 한계: 이 규칙은 "로그인 + 올바른 경로"까지만 강제합니다. 가족코드는
-//    추측 불가능한 랜덤값이지만, 코드를 아는 사람은 접근할 수 있습니다
-//    (링크 공유형 모델). 사용자별 강제가 필요하면 실명 로그인 + 멤버 검사가 필요합니다.
-//
-// ⚠️ 기존 데이터 마이그레이션 중에는 firestore.rules.migration 을 잠시 게시한 뒤,
-//    복사가 끝나면 이 최종본으로 되돌려 게시하세요.
+// ※ 한계: 이 규칙은 "로그인 + 올바른 경로"까지만 강제합니다. 가족코드(hid)는
+//    추측 불가능한 랜덤값이지만, 코드를 아는 사람은 접근할 수 있습니다(링크 공유형 모델).
+//    사용자별 강제가 필요하면 실명 로그인 + 멤버 검사가 필요합니다.
 
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /households/{hid}/{document=**} {
-      allow read, write: if request.auth != null;
+    match /households/{hid} {
+      match /{document=**} {
+        allow read, write: if request.auth != null;
+      }
     }
   }
 }
