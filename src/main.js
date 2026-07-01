@@ -37,6 +37,7 @@ let setBudget = null;
 let mutateEntries = null;
 let loadMerchantMap = null;
 let saveMerchantRule = null;
+let autoSignIn = null;
 
 if (isConfigured) {
   const auth = await import("./auth.js");
@@ -48,12 +49,7 @@ if (isConfigured) {
   mutateEntries = store.mutateEntries;
   loadMerchantMap = store.loadMerchantMap;
   saveMerchantRule = store.saveMerchantRule;
-  await auth.autoSignIn(); // 익명 자동 로그인 (가족 공용)
-  try {
-    if (getUser()) learnMap = await loadMerchantMap(); // 학습된 분류 불러오기
-  } catch (e) {
-    console.warn("학습 데이터 로드 실패", e);
-  }
+  autoSignIn = auth.autoSignIn;
 } else {
   document.querySelector("#config-banner").hidden = false;
 }
@@ -514,10 +510,23 @@ function wireEvents() {
 }
 
 // ════════ 시작 ════════
+// UI를 먼저 그리고 이벤트를 연결한다 — 버튼이 로그인 완료(네트워크 왕복)를 기다리지
+// 않고 즉시 반응하게 하려는 것. 저장이 필요한 동작은 각 핸들러의 ensureReady()가
+// "연결 중" 안내를 띄우고, 초대 링크 버튼은 localStorage만 쓰므로 로그인과 무관하게 동작한다.
 fillCategorySelects();
 wireEvents();
 buildMonthTabs();
 syncAddDate();
+
+// 그 다음에 (느릴 수 있는) 익명 로그인 → 학습 데이터 → 이번 달 로드
+if (isConfigured) {
+  await autoSignIn(); // 익명 자동 로그인 (가족 공용)
+  try {
+    if (getUser()) learnMap = await loadMerchantMap(); // 학습된 분류 불러오기
+  } catch (e) {
+    console.warn("학습 데이터 로드 실패", e);
+  }
+}
 await loadData();
 
 // PWA: 서비스워커 등록 (폰 홈화면 설치 + 오프라인 캐시)
