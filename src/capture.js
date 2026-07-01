@@ -5,6 +5,7 @@ import { extractText } from "./ocr.js";
 import { parseTransactions } from "./parse.js";
 import { CATS } from "./categorize.js";
 import { $, fmt, esc, showLoading, showToast } from "./dom.js";
+import { makeEntryDate } from "./datefmt.js";
 
 /**
  * 캡쳐 UI의 이벤트를 연결합니다.
@@ -167,7 +168,7 @@ export function setupCapture({ smartCategory, rememberRule, getUser, loadMonth, 
         category: it.category,
         desc: it.desc,
         amount: Number(it.amount) || 0,
-        date: `${m + 1}/${day} ${it.time || "00:00"}`,
+        date: makeEntryDate(m, day, it.time || "00:00"),
       });
     }
     // 중복 판별 키: 날짜 + 가맹점 + 금액

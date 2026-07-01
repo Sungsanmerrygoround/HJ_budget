@@ -5,8 +5,20 @@
 import { CATS, CAT_ICONS, CAT_COLORS } from "./categorize.js";
 import { $, fmt, fmtShort, esc } from "./dom.js";
 import { sumAmount, categoryTotals, rankedCategories } from "./aggregate.js";
+import { dayOf, dateKey } from "./datefmt.js";
 
 let chartInstance = null;
+
+// 내역 한 줄(.entry-item) 마크업. delay를 주면 입장 애니메이션을 붙입니다.
+function entryItemHTML(e, index, delay = null) {
+  const cls = "entry-item" + (delay != null ? " anim-in" : "");
+  const style = delay != null ? ` style="--d:${delay}s"` : "";
+  return `
+      <div class="${cls}" data-index="${index}"${style}>
+        <div><div class="entry-desc">${esc(e.desc)} <span class="entry-cat">[${esc(e.category)}]</span></div><div class="entry-meta">${esc(e.date)} · 탭해서 수정</div></div>
+        <div class="entry-amt-expense">-${fmt(e.amount)}</div>
+      </div>`;
+}
 
 /** 예산 사용률에 따라 게이지 그라데이션 색을 바꿉니다 (정상/경고/위험). */
 export function updateGaugeColors(realPct) {
@@ -34,7 +46,7 @@ export function renderWeekBars(entries, year, month) {
   const DOW = ["월", "화", "수", "목", "금", "토", "일"];
   const totals = [0, 0, 0, 0, 0, 0, 0];
   entries.forEach((e) => {
-    const day = parseInt((e.date.split(" ")[0] || "").split("/")[1]);
+    const day = dayOf(e.date);
     if (!day || isNaN(day)) return;
     const dow = new Date(year, month, day).getDay(); // 0=일
     totals[(dow + 6) % 7] += e.amount; // 월요일 시작으로 변환
@@ -61,7 +73,7 @@ export function renderCatChips(entries) {
   if (rows.length === 0) { el.innerHTML = ""; return; }
   el.innerHTML = rows
     .map(({ cat, total, i }, di) => `
-      <div class="cat-chip glass" data-cat="${cat}" style="animation:fadeSlideIn 0.28s cubic-bezier(.4,0,.2,1) both;animation-delay:${di * 0.06}s">
+      <div class="cat-chip glass anim-in" data-cat="${cat}" style="--d:${di * 0.06}s">
         <div class="cc-icon" style="background:${CAT_COLORS[i]}33">${CAT_ICONS[cat] || "📦"}</div>
         <div class="cc-name">${cat}</div>
         <div class="cc-amt">${fmtShort(total)}</div>
@@ -121,7 +133,7 @@ export function renderCatList(entries) {
   }
   container.innerHTML = rows
     .map(({ cat, total, i }, di) => `
-      <div class="cat-item" data-cat="${cat}" style="animation:fadeSlideIn 0.28s cubic-bezier(.4,0,.2,1) both;animation-delay:${di * 0.06}s">
+      <div class="cat-item anim-in" data-cat="${cat}" style="--d:${di * 0.06}s">
         <div class="cat-header"><div class="cat-name">${CAT_ICONS[cat] || "📦"} ${cat}</div><div class="cat-total">${fmt(total)}</div></div>
         <div class="cat-bar-bg"><div class="cat-bar" style="width:${Math.round((total / maxTotal) * 100)}%;background:${CAT_COLORS[i]}"></div></div>
       </div>`)
@@ -136,11 +148,10 @@ export function renderEntryList(entries, emptyMsg = "아직 기록이 없어요 
   }
   container.innerHTML = [...entries]
     .reverse()
-    .map((e, di) => `
-      <div class="entry-item" data-index="${"_origIdx" in e ? e._origIdx : entries.indexOf(e)}" style="animation:fadeSlideIn 0.28s cubic-bezier(.4,0,.2,1) both;animation-delay:${Math.min(di * 0.04, 0.32)}s">
-        <div><div class="entry-desc">${esc(e.desc)} <span style="font-size:11px;color:var(--sub2)">[${esc(e.category)}]</span></div><div class="entry-meta">${esc(e.date)} · 탭해서 수정</div></div>
-        <div class="entry-amt-expense">-${fmt(e.amount)}</div>
-      </div>`)
+    .map((e, di) => {
+      const index = "_origIdx" in e ? e._origIdx : entries.indexOf(e);
+      return entryItemHTML(e, index, Math.min(di * 0.04, 0.32));
+    })
     .join("");
 }
 
@@ -200,7 +211,7 @@ export function renderCalendar(entries, year, month, selectedDay) {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const dayMap = {};
   entries.forEach((e) => {
-    const dayStr = e.date.split(" ")[0];
+    const dayStr = dateKey(e.date);
     if (!dayMap[dayStr]) dayMap[dayStr] = [];
     dayMap[dayStr].push(e);
   });
@@ -223,11 +234,7 @@ export function renderCalendar(entries, year, month, selectedDay) {
     const total = sumAmount(dayEntries);
     $("dayDetailTitle").textContent = `${month + 1}월 ${selectedDay}일 · ${fmt(total)}`;
     $("dayEntryList").innerHTML = dayEntries
-      .map((e) => `
-        <div class="entry-item" data-index="${entries.indexOf(e)}">
-          <div><div class="entry-desc">${esc(e.desc)} <span style="font-size:11px;color:var(--sub2)">[${esc(e.category)}]</span></div><div class="entry-meta">${esc(e.date)} · 탭해서 수정</div></div>
-          <div class="entry-amt-expense">-${fmt(e.amount)}</div>
-        </div>`)
+      .map((e) => entryItemHTML(e, entries.indexOf(e)))
       .join("");
     $("dayDetail").style.display = "block";
   } else {

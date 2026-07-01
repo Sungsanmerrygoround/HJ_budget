@@ -386,6 +386,11 @@ select:focus, input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px 
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+/* 목록 항목 입장: 지연 시간은 인라인 --d 로 지정 (예: style="--d:.12s") */
+.anim-in { animation: fadeSlideIn 0.28s cubic-bezier(.4, 0, .2, 1) both; animation-delay: var(--d, 0s); }
+
+/* 내역 항목 안의 [카테고리] 꼬리표 */
+.entry-cat { font-size: 11px; color: var(--sub2); }
 
 /* ─── 내역 검색 ─── */
 .search-wrap { position: relative; margin: 16px 16px 8px; }

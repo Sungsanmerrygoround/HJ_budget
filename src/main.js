@@ -5,6 +5,7 @@ import { categorize, CATS, CAT_ICONS } from "./categorize.js";
 import { isConfigured } from "./firebase-config.js";
 import { $, fmt, esc, showLoading, showToast } from "./dom.js";
 import { sumAmount } from "./aggregate.js";
+import { dayOf, timeOf, makeEntryDate, clampDay } from "./datefmt.js";
 import {
   renderWeekBars, renderCatChips, renderChart,
   renderCatList, renderEntryList, renderCalendar,
@@ -119,6 +120,19 @@ async function saveData() {
   }
 }
 
+// 저장 직전, 서버 최신본을 받아 캐시를 갱신합니다.
+// (다른 가족 구성원이 동시에 추가한 내역을 덮어쓰지 않도록)
+async function refreshLatest() {
+  if (!loadMonth || !getUser()) return;
+  try {
+    const fresh = await loadMonth(currentYear, currentMonth);
+    cachedEntries = fresh.entries;
+    cachedBudget = fresh.budget;
+  } catch (e) {
+    console.warn("최신본 조회 실패", e);
+  }
+}
+
 // ── 연도 이동 ──
 function changeYear(delta) {
   currentYear += delta;
@@ -222,21 +236,13 @@ async function addEntry() {
   const dateVal = $("entryDate").value;
   let day = dateVal ? parseInt(dateVal.split("-")[2]) : d.getDate();
   if (!day || isNaN(day)) day = d.getDate();
-  day = Math.min(Math.max(day, 1), last);
-  const date = `${currentMonth + 1}/${day} ${hm}`;
+  day = clampDay(day, last);
+  const date = makeEntryDate(currentMonth, day, hm);
 
   const entry = { category, desc, amount, date };
 
   // 동시 사용 대비: 저장 직전 최신본을 받아 거기에 추가 (다른 사람 내역 유실 방지)
-  if (loadMonth && getUser()) {
-    try {
-      const fresh = await loadMonth(currentYear, currentMonth);
-      cachedEntries = fresh.entries;
-      cachedBudget = fresh.budget;
-    } catch (e) {
-      console.warn("최신본 조회 실패, 캐시에 추가", e);
-    }
-  }
+  await refreshLatest();
   cachedEntries.push(entry);
   const ok = await saveData();
   render();
@@ -305,13 +311,10 @@ function openEditModal(index) {
   const { min, max } = monthBounds();
   $("editDate").min = min;
   $("editDate").max = max;
-  try {
-    const [datePart] = e.date.split(" ");
-    const [, d] = datePart.split("/");
-    $("editDate").value = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-  } catch {
-    $("editDate").value = "";
-  }
+  const d = dayOf(e.date);
+  $("editDate").value = Number.isNaN(d)
+    ? ""
+    : `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   $("editModalOverlay").classList.add("open");
 }
 
@@ -326,18 +329,13 @@ async function saveEdit() {
   }
   // 날짜: 보고 있는 달로 고정, 고른 '일'만 반영 (월 불일치 방지)
   const oldDate = cachedEntries[editingIndex].date;
-  const timePart = oldDate.includes(" ") ? oldDate.split(" ")[1] : "00:00";
+  const timePart = timeOf(oldDate);
   const { last } = monthBounds();
   const dateVal = $("editDate").value;
-  let day;
-  if (dateVal) {
-    day = parseInt(dateVal.split("-")[2]);
-  } else {
-    day = parseInt((oldDate.split(" ")[0] || "").split("/")[1]);
-  }
+  let day = dateVal ? parseInt(dateVal.split("-")[2]) : dayOf(oldDate);
   if (!day || isNaN(day)) day = 1;
-  day = Math.min(Math.max(day, 1), last);
-  const newDate = `${currentMonth + 1}/${day} ${timePart}`;
+  day = clampDay(day, last);
+  const newDate = makeEntryDate(currentMonth, day, timePart);
 
   cachedEntries[editingIndex] = { ...cachedEntries[editingIndex], desc, amount, category, date: newDate };
   const ok = await saveData();
@@ -373,14 +371,7 @@ async function saveBudget() {
     return;
   }
   // 예산만 바꾸므로, 동시 추가된 내역을 덮어쓰지 않도록 최신 내역을 먼저 받음
-  if (loadMonth && getUser()) {
-    try {
-      const fresh = await loadMonth(currentYear, currentMonth);
-      cachedEntries = fresh.entries;
-    } catch (e) {
-      console.warn("최신본 조회 실패", e);
-    }
-  }
+  await refreshLatest();
   cachedBudget = val;
   $("budgetInput").value = "";
   const ok = await saveData();
