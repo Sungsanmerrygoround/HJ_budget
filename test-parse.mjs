@@ -1,16 +1,10 @@
 // 임시 검증 스크립트: node test-parse.mjs
+import { check as checkValue, done } from "./test-util.mjs";
 import { parseTransactions } from "./src/parse.js";
 
-let pass = 0, fail = 0;
+// 원문을 읽어 "가맹점|금액" 목록이 기대와 같은지
 function check(name, text, expected) {
-  const { expenses } = parseTransactions(text);
-  const got = expenses.map((e) => `${e.merchant}|${e.amount}`);
-  const ok = JSON.stringify(got) === JSON.stringify(expected);
-  if (ok) { pass++; console.log(`✅ ${name}`); }
-  else {
-    fail++;
-    console.log(`❌ ${name}\n   기대: ${JSON.stringify(expected)}\n   실제: ${JSON.stringify(got)}`);
-  }
+  checkValue(name, parseTransactions(text).expenses.map((e) => `${e.merchant}|${e.amount}`), expected);
 }
 
 // 1) 기본: 카카오페이 스타일 (부호 + 잔액 줄)
@@ -186,14 +180,6 @@ check("거대 금액 제외", `
 `, ["정상가맹점|4500"]);
 
 // ── 날짜·수입 기록 검증 (오늘 날짜에 따라 결과가 바뀌지 않게 now를 고정) ──
-function checkValue(name, got, expected) {
-  const ok = JSON.stringify(got) === JSON.stringify(expected);
-  if (ok) { pass++; console.log(`✅ ${name}`); }
-  else {
-    fail++;
-    console.log(`❌ ${name}\n   기대: ${JSON.stringify(expected)}\n   실제: ${JSON.stringify(got)}`);
-  }
-}
 const datesOf = (r) => r.expenses.map((e) => `${e.merchant}|${e.date}`);
 const OCT17 = new Date(2026, 9, 17); // 2026-10-17
 
@@ -296,7 +282,7 @@ GS25 -2,300원
 6월 6일 토요일
 캐시백 +300원
 `, { now: OCT17 });
-  checkValue("수입 기록", [r.incomes, r.excludedIncome], [[{ amount: 1200, date: "2026-06-07" }, { amount: 300, date: "2026-06-06" }], 2]);
+  checkValue("수입 기록", r.incomes, [{ amount: 1200, date: "2026-06-07" }, { amount: 300, date: "2026-06-06" }]);
 }
 
 // 30) [신규] 작은 회색 헤더의 OCR 오독: '월'→8·&, '일'→% (실제 인식 결과에서 나온 모양)
@@ -334,5 +320,101 @@ GS25 -2,300원
   checkValue("'요 일' 공백 허용", datesOf(r), ["스타벅스|2026-06-07"]);
 }
 
-console.log(`\n결과: ${pass} 통과 / ${fail} 실패`);
-process.exit(fail ? 1 : 0);
+// 33) 날짜를 잘못 읽은 일별 합계 헤더("7잎")도 헤더 — 그날 합계가 가짜 지출로 한 번 더 잡히지 않음
+{
+  const r = parseTransactions(`
+6월 8일 월요일
+쿠팡 -1,000원
+6월 7잎 일요일 -7,800원
+스타벅스 -5,500원
+`, { now: OCT17 });
+  checkValue("날짜 깨진 합계 헤더는 지출 아님", r.expenses.map((e) => e.merchant), ["쿠팡", "스타벅스"]);
+}
+
+// 34) 다른 모양의 합계 헤더("10.16 목요일", "어제 일요일")도 지출 아님
+checkValue("'10.16 목요일 -7,800원'은 헤더",
+  parseTransactions("10.16 목요일 -7,800원\nCU -3,600원", { now: OCT17 }).expenses.map((e) => e.merchant), ["CU"]);
+checkValue("'어제 일요일 -7,800원'은 헤더",
+  parseTransactions("어제 일요일 -7,800원\nCU -3,600원", { now: OCT17 }).expenses.map((e) => e.merchant), ["CU"]);
+
+// 35) 요일 단어로 시작하는 가맹점(날짜 없음 + 금액)은 거래
+check("'금요일 포차'는 거래", `
+6월 7일 일요일
+금요일 포차 -30,000원
+`, ["금요일 포차|30000"]);
+
+// 36) '요기요 일시불'처럼 '요 일'이 단어를 넘어 이어져도 헤더 아님 (가맹점명이 지워지지 않음)
+check("'요기요 일시불'은 헤더 아님", `
+10월 15일 목요일
+요기요 일시불
+-23,000원
+19:30 1,000,000원
+`, ["요기요 일시불|23000"]);
+
+// 37) 금액 없는 배너 "매주 금요일 5% 적립"의 5%를 날짜(5일)로 읽지 않음
+{
+  const r = parseTransactions(`
+10월 15일 목요일
+매주 금요일 5% 적립
+스타벅스 -5,500원
+`, { now: OCT17 });
+  checkValue("'5%' 배너는 날짜 아님", datesOf(r), ["스타벅스|2026-10-15"]);
+}
+
+// 38) 결제 예정 같은 가까운 미래 날짜는 올해 그대로 (작년으로 밀리지 않음)
+checkValue("가까운 미래(결제 예정)는 올해",
+  datesOf(parseTransactions("10월 25일 일요일\n통신비 자동이체 -55,000원", { now: OCT17 })), ["통신비 자동이체|2026-10-25"]);
+
+// 39) 연말에 본 1월 1일은 내년 / 너무 먼 미래는 작년
+checkValue("12/31에 본 1월 1일은 내년",
+  datesOf(parseTransactions("1월 1일 금요일\nCU -3,600원", { now: new Date(2026, 11, 31, 23, 50) })), ["CU|2027-01-01"]);
+checkValue("두 달 넘게 뒤의 날짜는 작년",
+  datesOf(parseTransactions("12월 20일 토요일\nCU -3,600원", { now: OCT17 })), ["CU|2025-12-20"]);
+
+// 40) 월을 못 읽은 헤더("15일")는 앞 날짜 이전의 가장 가까운 15일 (이번 달로 튀지 않음)
+{
+  const r = parseTransactions(`
+9월 16일 화요일
+스타벅스 -5,500원
+15일 월요일
+CU -3,600원
+`, { now: OCT17 });
+  checkValue("'15일'은 앞 날짜(9/16) 기준", datesOf(r), ["스타벅스|2026-09-16", "CU|2026-09-15"]);
+}
+{
+  const r = parseTransactions(`
+25일 금요일
+CU -3,600원
+`, { now: OCT17, startDate: "2026-09-20" });
+  checkValue("'25일'은 이어받은 날짜(9/20) 이전 → 8/25", datesOf(r), ["CU|2026-08-25"]);
+}
+
+// 41) firstDate는 월까지 읽은 헤더만 (월을 못 읽은 헤더의 날짜는 앞 장에 따라 달라짐)
+checkValue("firstDate는 '월·일' 헤더",
+  parseTransactions("15일 월요일\nCU -3,600원\n9월 14일 일요일\nGS25 -2,300원", { now: OCT17 }).firstDate, "2026-09-14");
+
+// 43) 작은 회색 헤더에서 '일'을 2로 읽거나 빠뜨린 경우 (실제 인식 결과에서 나온 모양)
+{
+  const r = parseTransactions(`
+108 122 월요일
+A마트 -1,000원
+9월 302 수요일
+B마트 -2,000원
+108 42 일요일
+C마트 -3,000원
+10월 22 목요일
+D마트 -4,000원
+`, { now: OCT17 });
+  checkValue("'일'→2·누락 헤더 복구(122→12, 302→30, 42→4, 22→22)", datesOf(r),
+    ["A마트|2026-10-12", "B마트|2026-09-30", "C마트|2026-10-04", "D마트|2026-10-22"]);
+}
+
+// 42) 줄 끝 &는 금액 모양 숫자일 때만 '원' — 가맹점 줄 "GS25 &"가 25원 지출이 되지 않음
+check("'GS25 &'는 금액 아님", `
+6월 7일 일요일
+GS25 &
+-2,300원
+17:02 1,000,000원
+`, ["GS25 &|2300"]);
+
+done();

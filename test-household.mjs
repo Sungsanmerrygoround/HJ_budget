@@ -1,12 +1,6 @@
 // 검증 스크립트: node test-household.mjs
+import { check, done } from "./test-util.mjs";
 import { isValidHid } from "./src/household.js";
-
-let pass = 0, fail = 0;
-function check(name, got, expected) {
-  const ok = got === expected;
-  if (ok) { pass++; console.log(`✅ ${name}`); }
-  else { fail++; console.log(`❌ ${name}\n   기대: ${expected}\n   실제: ${got}`); }
-}
 
 // 정상 코드 (실제로 발급되는 형태)
 check("UUID 허용", isValidHid("3f2504e0-4f89-41d3-9a0c-0305e82c3301"), true);
@@ -27,5 +21,4 @@ check("숫자 타입 거부", isValidHid(12345), false);
 check("128자 허용", isValidHid("a".repeat(128)), true);
 check("129자 거부", isValidHid("a".repeat(129)), false);
 
-console.log(`\n결과: ${pass} 통과 / ${fail} 실패`);
-process.exit(fail ? 1 : 0);
+done();

@@ -1,16 +1,7 @@
 // 검증 스크립트: node test-entryops.mjs
-import { entryKey, replaceEntry, removeEntry, newEntriesOnly } from "./src/entryops.js";
+import { check, done } from "./test-util.mjs";
+import { entryKey, replaceEntry, removeEntry, newEntriesOnly, sameTxn, pairUp } from "./src/entryops.js";
 import { genId } from "./src/id.js";
-
-let pass = 0, fail = 0;
-function check(name, got, expected) {
-  const ok = JSON.stringify(got) === JSON.stringify(expected);
-  if (ok) { pass++; console.log(`✅ ${name}`); }
-  else {
-    fail++;
-    console.log(`❌ ${name}\n   기대: ${JSON.stringify(expected)}\n   실제: ${JSON.stringify(got)}`);
-  }
-}
 
 const A = { date: "6/7 16:38", desc: "스타벅스", amount: 5500, category: "외식비" };
 const B = { date: "6/7 17:02", desc: "GS25", amount: 2300, category: "생필품" };
@@ -99,5 +90,27 @@ check("한쪽만 시간을 알면 내용으로 비교",
 
 check("newEntriesOnly 원본 불변", (() => { const s = [A]; newEntriesOnly(s, [cap(A.date, "스타벅스", 5500)]); return s.length; })(), 1);
 
-console.log(`\n결과: ${pass} 통과 / ${fail} 실패`);
-process.exit(fail ? 1 : 0);
+check("시간을 모르면 이름을 띄어쓰기·대소문자 무시하고 비교",
+  newEntriesOnly([{ ...B, date: "6/7 00:00", desc: "GS25 역삼점" }], [cap("6/7 00:00", "gs25역삼점", 2300)]).skipped, 1);
+
+check("시간 없는 날짜(\"6/7\")도 시간 모름으로",
+  newEntriesOnly([{ ...A, date: "6/7" }], [cap("6/7 16:38", "스타벅스", 5500)]).skipped, 1);
+
+// ── sameTxn: 캡쳐 합치기와 저장 중복 거르기가 함께 쓰는 '같은 거래' 규칙 ──
+const t = (amount, time, name) => ({ amount, time, name });
+check("sameTxn 시각을 알면 이름은 안 봄", sameTxn(t(5500, "16:38", "스타벅스"), t(5500, "16:38", "스E벅스")), true);
+check("sameTxn 시각 표기 차이(9:05 = 09:05)", sameTxn(t(5500, "9:05", "A"), t(5500, "09:05", "B")), true);
+check("sameTxn 시각이 다르면 다른 거래", sameTxn(t(5500, "16:38", "스타벅스"), t(5500, "10:00", "스타벅스")), false);
+check("sameTxn 금액이 다르면 다른 거래", sameTxn(t(5500, "16:38", "A"), t(6000, "16:38", "A")), false);
+check("sameTxn 00:00은 시각 모름 → 이름으로 (자정 결제 넷플릭스≠웨이브)",
+  sameTxn(t(13500, "00:00", "넷플릭스"), t(13500, "00:00", "웨이브")), false);
+check("sameTxn 시각 모름 + 이름 정규화(GS25 역삼점 = GS25역삼점)",
+  sameTxn(t(2300, null, "GS25 역삼점"), t(2300, null, "GS25역삼점")), true);
+
+// ── pairUp: 하나씩 짝짓기 ──
+{
+  const r = pairUp([1, 2, 2], [2, 2, 2, 3], (a, b) => a === b);
+  check("pairUp 짝 개수까지 맞춤", [r.pairs, r.fresh], [[[2, 2], [2, 2]], [2, 3]]);
+}
+
+done();

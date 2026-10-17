@@ -1,11 +1,11 @@
 // main.js — 한준♥이현 가계부 앱 컨트롤러
 // 상태·데이터·라우팅을 담당하고, 렌더링은 renderer.js, OCR 흐름은 capture.js에 위임합니다.
 
-import { categorize, CATS, CAT_ICONS } from "./categorize.js";
+import { categorize, normMerchant, CATS, CAT_ICONS } from "./categorize.js";
 import { isConfigured } from "./firebase-config.js";
 import { $, fmt, esc, showLoading, showToast } from "./dom.js";
 import { sumAmount } from "./aggregate.js";
-import { dayOf, timeOf, makeEntryDate, clampDay } from "./datefmt.js";
+import { dayOf, timeOf, makeEntryDate, clampDay, toISO, todayISO, daysInMonth } from "./datefmt.js";
 import { entryKey, replaceEntry, removeEntry } from "./entryops.js";
 import { genId } from "./id.js";
 import { getHouseholdId, shareLink, setHouseholdId } from "./household.js";
@@ -25,7 +25,9 @@ let currentMonth = now.getMonth(); // 0~11
 let cachedEntries = [];
 let cachedBudget = 0;
 let activeView = "add";
-let editingEntry = null; // 편집 모달을 연 시점의 항목 스냅샷 (저장 시점의 cachedEntries 변경에 영향받지 않음)
+// 편집 모달을 연 시점의 항목 스냅샷과 그 항목이 든 연·월 (저장 시점의 cachedEntries 변경이나,
+// 모달을 열어 둔 사이 보고 있는 달이 바뀌어도(캡쳐 저장 후 이동 등) 원래 달의 그 항목을 고침)
+let editing = null; // { entry, year, month }
 let searchQuery = '';
 let learnMap = {}; // 학습형 분류: normalize(가맹점) -> 카테고리
 
@@ -52,11 +54,6 @@ if (isConfigured) {
   autoSignIn = auth.autoSignIn;
 } else {
   document.querySelector("#config-banner").hidden = false;
-}
-
-// 가맹점 이름 정규화 (대소문자·공백·기호 제거 → OCR 변형에 덜 민감)
-function normMerchant(s) {
-  return String(s || "").toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
 }
 
 // 가맹점 → 카테고리: 학습된 게 있으면 우선, 없으면 규칙 기반
@@ -121,8 +118,24 @@ function reportSaveError(e) {
 }
 
 // ── 연·월 이동 ──
-// 보고 있는 연·월을 바꾸고 그 달을 불러옵니다. (캡쳐로 다른 달에 추가했을 때도 사용)
+// 캡쳐 저장 뒤 내역이 들어간 다른 달을 잠깐 보여줄 때, 원래 보던 달 ('추가' 탭으로 가면 여기로 돌아감)
+// — 지난달을 보는 줄 모르고 오늘 지출을 넣으면 그 달 1일로 들어가 버리기 때문
+let peekReturn = null;
+
+// 보고 있는 연·월을 바꾸고 그 달을 불러옵니다.
 function showMonth(year, month) {
+  peekReturn = null; // 사용자가 직접 고른 달
+  return goToMonth(year, month);
+}
+
+// 캡쳐로 다른 달에 추가했을 때, 그 달을 잠깐 보여줍니다.
+function peekMonth(year, month) {
+  if (year === currentYear && month === currentMonth) return loadData();
+  if (!peekReturn) peekReturn = { year: currentYear, month: currentMonth };
+  return goToMonth(year, month);
+}
+
+function goToMonth(year, month) {
   currentYear = year;
   currentMonth = month;
   searchQuery = '';
@@ -244,15 +257,10 @@ async function addEntry() {
   showToast("✅ 추가됐어요!");
 }
 
-// 현재 보고 있는 월(currentYear/currentMonth)의 날짜 범위
-function monthBounds() {
-  const last = new Date(currentYear, currentMonth + 1, 0).getDate();
-  const mm = String(currentMonth + 1).padStart(2, "0");
-  return {
-    min: `${currentYear}-${mm}-01`,
-    max: `${currentYear}-${mm}-${String(last).padStart(2, "0")}`,
-    last,
-  };
+// 그 달(기본: 보고 있는 달, month는 0~11)의 날짜 범위
+function monthBounds(year = currentYear, month = currentMonth) {
+  const last = daysInMonth(year, month + 1);
+  return { min: toISO(year, month + 1, 1), max: toISO(year, month + 1, last), last };
 }
 
 // 날짜 입력값('YYYY-MM-DD')에서 '일'을 뽑아 월 범위(last)로 맞춥니다.
@@ -272,13 +280,12 @@ function syncAddDate() {
   el.max = max;
   const t = new Date();
   const isRealThisMonth = currentYear === t.getFullYear() && currentMonth === t.getMonth();
-  el.value = isRealThisMonth
-    ? `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`
-    : min;
+  el.value = isRealThisMonth ? todayISO(t) : min;
 }
 
 // ── 뷰 전환 ──
 function switchView(view) {
+  if (view === "add" && peekReturn) showMonth(peekReturn.year, peekReturn.month); // 잠깐 보여준 달 → 원래 달로
   activeView = view;
   document.querySelectorAll(".view-tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
   document.querySelectorAll(".view-panel").forEach((p) => p.classList.remove("active"));
@@ -303,7 +310,7 @@ function openModal(cat) {
 function openEditModal(index) {
   const e = cachedEntries[index];
   if (!e) return;
-  editingEntry = e; // 저장 시점까지 이 스냅샷으로 항목을 식별 (그사이 목록이 갱신돼도 안전)
+  editing = { entry: e, year: currentYear, month: currentMonth }; // 저장 시점까지 이 스냅샷으로 항목을 식별
   $("editCategory").value = e.category;
   $("editDesc").value = e.desc;
   $("editAmount").value = e.amount;
@@ -312,14 +319,12 @@ function openEditModal(index) {
   $("editDate").min = min;
   $("editDate").max = max;
   const d = dayOf(e.date);
-  $("editDate").value = Number.isNaN(d)
-    ? ""
-    : `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  $("editDate").value = Number.isNaN(d) ? "" : toISO(currentYear, currentMonth + 1, d);
   $("editModalOverlay").classList.add("open");
 }
 
 async function saveEdit() {
-  if (!editingEntry) return;
+  if (!editing) return;
   const desc = $("editDesc").value.trim();
   const amount = parseInt($("editAmount").value);
   const category = $("editCategory").value;
@@ -328,21 +333,21 @@ async function saveEdit() {
     return;
   }
   if (!ensureReady()) return;
-  const target = editingEntry;
+  const { entry: target, year, month } = editing;
   const oldKey = entryKey(target); // 서버 최신본에서 이 항목을 찾을 키
-  // 날짜: 보고 있는 달로 고정, 고른 '일'만 반영 (월 불일치 방지)
+  // 날짜: 항목이 든 달로 고정, 고른 '일'만 반영 (월 불일치 방지)
   const oldDate = target.date;
   const timePart = timeOf(oldDate);
-  const { last } = monthBounds();
+  const { last } = monthBounds(year, month);
   const origDay = dayOf(oldDate);
   const day = resolveDay($("editDate").value, (!origDay || isNaN(origDay)) ? 1 : origDay, last);
-  const newDate = makeEntryDate(currentMonth, day, timePart);
+  const newDate = makeEntryDate(month, day, timePart);
   // id가 없던 옛 항목이면 이번 편집에 id를 부여(자가 치유): 이후 arrayUnion 중복 오인·수정 오조준 방지
   const newEntry = { ...target, desc, amount, category, date: newDate, id: target.id || genId() };
 
   // 트랜잭션: 최신 배열에서 키로 찾아 교체 (동시 편집에도 엉뚱한 항목 안 건드림)
   try {
-    await mutateEntries(currentYear, currentMonth, (arr) => replaceEntry(arr, oldKey, newEntry));
+    await mutateEntries(year, month, (arr) => replaceEntry(arr, oldKey, newEntry));
   } catch (e) {
     reportSaveError(e);
     return;
@@ -354,12 +359,13 @@ async function saveEdit() {
 }
 
 async function deleteEntry() {
-  if (!editingEntry) return;
+  if (!editing) return;
   if (!confirm("이 내역을 삭제할까요?")) return;
   if (!ensureReady()) return;
-  const oldKey = entryKey(editingEntry);
+  const { entry, year, month } = editing;
+  const oldKey = entryKey(entry);
   try {
-    await mutateEntries(currentYear, currentMonth, (arr) => removeEntry(arr, oldKey));
+    await mutateEntries(year, month, (arr) => removeEntry(arr, oldKey));
   } catch (e) {
     reportSaveError(e);
     return;
@@ -371,7 +377,7 @@ async function deleteEntry() {
 
 function closeEditModal() {
   $("editModalOverlay").classList.remove("open");
-  editingEntry = null;
+  editing = null;
 }
 function closeCatModal() {
   $("modalOverlay").classList.remove("open");
@@ -474,7 +480,7 @@ function wireEvents() {
     getUser,
     loadMonth,
     appendEntries,
-    showMonth,
+    peekMonth,
     switchView,
     getYear: () => currentYear,
     getMonth: () => currentMonth,

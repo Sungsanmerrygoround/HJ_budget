@@ -1,19 +1,11 @@
 // 임시 검증 스크립트: node test-capmerge.mjs
+import { check, done } from "./test-util.mjs";
 import { mergeCaptures } from "./src/capmerge.js";
 
 // 오늘 날짜에 따라 결과가 바뀌지 않게 '오늘'을 고정 (날짜 헤더는 이 기준으로 연도를 정함)
 const NOW = new Date(2026, 9, 17); // 2026-10-17
 const merge = (texts) => mergeCaptures(texts, { now: NOW });
 
-let pass = 0, fail = 0;
-function check(name, got, expected) {
-  const ok = JSON.stringify(got) === JSON.stringify(expected);
-  if (ok) { pass++; console.log(`✅ ${name}`); }
-  else {
-    fail++;
-    console.log(`❌ ${name}\n   기대: ${JSON.stringify(expected)}\n   실제: ${JSON.stringify(got)}`);
-  }
-}
 const summary = (r) => r.expenses.map((e) => `${e.merchant}|${e.amount}|${e.date.slice(5)}`);
 
 // 스크롤하며 찍은 두 장: B는 6월 6일 헤더가 위로 잘렸고, 맨 위 맥도날드는 A 아래와 겹침
@@ -184,5 +176,89 @@ const P123 = ["스타벅스|5500|06-07", "쿠팡|19800|06-06", "이마트|45200|
   check("겹침 없는 헤더 없는 장", summary(r).slice(-1), ["배달의민족|23000|06-06"]);
 }
 
-console.log(`\n결과: ${pass} 통과 / ${fail} 실패`);
-process.exit(fail ? 1 : 0);
+// 13) 헤더 없는 맨 위 장: 마지막 거래가 아래 장의 첫 거래와 겹치면 그 장 바로 위 (고른 순서와 무관)
+{
+  const top = `
+스타벅스 -5,500원
+16:38 1,000,000원
+쿠팡 -19,800원
+14:05 1,005,500원
+이마트 -45,200원
+11:40 1,025,300원
+`;
+  const lower = `
+이마트 -45,200원
+11:40 1,025,300원
+CU -3,600원
+09:10 1,070,500원
+6월 6일 토요일
+맥도날드 -7,900원
+12:10 1,074,100원
+`;
+  const expected = ["스타벅스|5500|10-17", "쿠팡|19800|10-17", "이마트|45200|10-17", "CU|3600|10-17", "맥도날드|7900|06-06"];
+  check("헤더 없는 맨 위 장(순서대로)", summary(merge([top, lower])), expected);
+  check("헤더 없는 맨 위 장(거꾸로)", summary(merge([lower, top])), expected);
+  check("헤더 없는 맨 위 장(거꾸로) 겹친 건수", merge([lower, top]).overlapped, 1);
+}
+
+// 14) 첫 헤더가 같은 두 장: 헤더 위에 거래가 보이는 장(더 위로 스크롤한 화면)이 위
+{
+  const upper = `
+이마트 -45,200원
+18:40 1,000,000원
+6월 7일 일요일
+스타벅스 -5,500원
+16:38 1,045,200원
+GS25 -2,300원
+15:00 1,050,700원
+`;
+  const lower = `
+6월 7일 일요일
+스타벅스 -5,500원
+16:38 1,045,200원
+GS25 -2,300원
+15:00 1,050,700원
+6월 6일 토요일
+쿠팡 -19,800원
+21:05 1,053,000원
+`;
+  const expected = ["이마트|45200|10-17", "스타벅스|5500|06-07", "GS25|2300|06-07", "쿠팡|19800|06-06"];
+  check("같은 첫 헤더(아래 장 먼저 고름)", summary(merge([lower, upper])), expected);
+  check("같은 첫 헤더(위 장 먼저 고름)", summary(merge([upper, lower])), expected);
+}
+
+// 15) 겹쳐서 뺀 쪽도 남긴 항목의 다른 이름(also)으로 남음 (사진을 더해 남는 쪽이 바뀌어도 같은 항목으로 알아보게)
+{
+  check("한 장일 땐 also 없음", merge([B]).expenses[0].also, []);
+  const mac = merge([A, B]).expenses.find((e) => e.merchant === "맥도날드");
+  check("겹친 맥도날드: A의 항목 + B의 항목", [mac.src, mac.idx, mac.also], [0, 2, [{ src: 1, idx: 0 }]]);
+}
+
+// 16) 자정(00:00) 같은 금액 결제는 이름이 다르면 다른 거래 (넷플릭스·웨이브)
+{
+  const r = merge([
+    "6월 7일 일요일\n넷플릭스 -13,500원\n00:00 1,000,000원",
+    "6월 7일 일요일\n웨이브 -13,500원\n00:00 1,013,500원",
+  ]);
+  check("자정 결제 두 건 보존", [summary(r), r.overlapped], [["넷플릭스|13500|06-07", "웨이브|13500|06-07"], 0]);
+}
+
+// 17) 시간을 못 읽은 경계 줄은 이름을 띄어쓰기 무시하고 비교 ("GS25 역삼점" = "GS25역삼점")
+{
+  const r = merge([
+    "6월 7일 일요일\n스타벅스 -5,500원\n16:38 1,000,000원\nGS25 역삼점 -2,300원",
+    "GS25역삼점 -2,300원\n17:02 1,005,500원\n6월 6일 토요일\n쿠팡 -19,800원\n21:05 1,007,800원",
+  ]);
+  check("띄어쓰기 다른 경계 거래는 한 번만", [summary(r), r.overlapped], [["스타벅스|5500|06-07", "GS25 역삼점|2300|06-07", "쿠팡|19800|06-06"], 1]);
+}
+
+// 18) 월을 못 읽은 첫 헤더("15일")는 순서를 정할 때 쓰지 않고, 앞 장의 날짜를 이어받아 정함
+{
+  const x = "15일 월요일\nA마트 -1,000원\n9월 14일 일요일\nB마트 -2,000원";
+  const y = "9월 16일 화요일\nC마트 -3,000원\nD마트 -4,000원";
+  const expected = ["C마트|3000|09-16", "D마트|4000|09-16", "A마트|1000|09-15", "B마트|2000|09-14"];
+  check("월 없는 첫 헤더 장(나중 장 먼저 고름)", summary(merge([x, y])), expected);
+  check("월 없는 첫 헤더 장(순서대로)", summary(merge([y, x])), expected);
+}
+
+done();

@@ -1,15 +1,6 @@
 // 검증 스크립트: node test-datefmt.mjs
-import { dayOf, timeOf, dateKey, makeEntryDate, clampDay } from "./src/datefmt.js";
-
-let pass = 0, fail = 0;
-function check(name, got, expected) {
-  const ok = JSON.stringify(got) === JSON.stringify(expected);
-  if (ok) { pass++; console.log(`✅ ${name}`); }
-  else {
-    fail++;
-    console.log(`❌ ${name}\n   기대: ${JSON.stringify(expected)}\n   실제: ${JSON.stringify(got)}`);
-  }
-}
+import { check, done } from "./test-util.mjs";
+import { dayOf, timeOf, dateKey, makeEntryDate, clampDay, toISO, todayISO, daysInMonth, parseISO, shortDate } from "./src/datefmt.js";
 
 // dayOf: "M/D HH:MM"에서 '일'만
 check("dayOf 기본", dayOf("6/7 16:38"), 7);
@@ -39,5 +30,14 @@ check("clampDay 상한", clampDay(31, 30), 30);
 // 왕복: dayOf(makeEntryDate(...)) 일관성
 check("왕복 일관성", dayOf(makeEntryDate(5, 7, timeOf("6/7 16:38"))), 7);
 
-console.log(`\n결과: ${pass} 통과 / ${fail} 실패`);
-process.exit(fail ? 1 : 0);
+// ISO("YYYY-MM-DD") 도우미 — 월은 1~12
+check("toISO 자릿수 채움", toISO(2026, 6, 7), "2026-06-07");
+check("todayISO 주어진 시각", todayISO(new Date(2026, 9, 17, 23, 59)), "2026-10-17");
+check("daysInMonth 2월(윤년/평년)", [daysInMonth(2028, 2), daysInMonth(2026, 2)], [29, 28]);
+check("daysInMonth 12월", daysInMonth(2026, 12), 31);
+check("parseISO 정상", parseISO("2026-06-07"), { year: 2026, month: 6, day: 7 });
+check("parseISO 없는 날짜(2월 30일) → null", parseISO("2026-02-30"), null);
+check("parseISO 형식 아님 → null", [parseISO(""), parseISO(null), parseISO("2026-6-7"), parseISO("2026-13-01")], [null, null, null, null]);
+check("shortDate", [shortDate("2026-06-12"), shortDate("2026-12-01"), shortDate("깨진값")], ["6/12", "12/1", ""]);
+
+done();

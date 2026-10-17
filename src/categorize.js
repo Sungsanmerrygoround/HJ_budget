@@ -34,6 +34,14 @@ const RULES = [
 ];
 
 /**
+ * 가맹점 이름 정규화 (대소문자·공백·기호 제거 → OCR 변형에 덜 민감: "GS25 역삼점" = "gs25역삼점")
+ * 학습한 분류를 찾을 때와, 같은 거래인지 비교할 때 씁니다.
+ */
+export function normMerchant(s) {
+  return String(s || "").toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
+}
+
+/**
  * 가맹점명 → 카테고리 (못 맞추면 '기타')
  */
 export function categorize(merchant) {

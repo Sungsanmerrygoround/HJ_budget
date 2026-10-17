@@ -29,3 +29,35 @@ export function makeEntryDate(month0, day, time = "00:00") {
 export function clampDay(day, lastDay) {
   return Math.min(Math.max(day, 1), lastDay);
 }
+
+// ── "YYYY-MM-DD"(ISO) 날짜: 날짜 입력칸·캡쳐 인식 결과에 쓰는 형식. 여기서는 월을 1~12로 셉니다. ──
+
+/** 연·월(1~12)·일 → "YYYY-MM-DD" */
+export function toISO(year, month, day) {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/** 그 시각(기본: 지금)의 날짜 → "YYYY-MM-DD" */
+export function todayISO(now = new Date()) {
+  return toISO(now.getFullYear(), now.getMonth() + 1, now.getDate());
+}
+
+/** 그 달(1~12)의 일수 */
+export function daysInMonth(year, month) {
+  return new Date(year, month, 0).getDate();
+}
+
+/** "YYYY-MM-DD" → {year, month(1~12), day}. 형식이 아니거나 달력에 없는 날짜(2월 30일 등)면 null */
+export function parseISO(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s ?? ""));
+  if (!m) return null;
+  const [year, month, day] = m.slice(1).map(Number);
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) return null;
+  return { year, month, day };
+}
+
+/** "2026-06-12" → "6/12" */
+export function shortDate(iso) {
+  const p = parseISO(iso);
+  return p ? `${p.month}/${p.day}` : "";
+}

@@ -1,16 +1,7 @@
 // 검증 스크립트: node test-aggregate.mjs
+import { check, done } from "./test-util.mjs";
 import { sumAmount, categoryTotals, rankedCategories } from "./src/aggregate.js";
 import { CATS } from "./src/categorize.js";
-
-let pass = 0, fail = 0;
-function check(name, got, expected) {
-  const ok = JSON.stringify(got) === JSON.stringify(expected);
-  if (ok) { pass++; console.log(`✅ ${name}`); }
-  else {
-    fail++;
-    console.log(`❌ ${name}\n   기대: ${JSON.stringify(expected)}\n   실제: ${JSON.stringify(got)}`);
-  }
-}
 
 const entries = [
   { category: "외식비", amount: 5000 },
@@ -40,5 +31,4 @@ check("rankedCategories 정렬/필터",
   ["외식비|8000", "교통비|2000", "기타|1000"]);
 check("rankedCategories 빈 배열", rankedCategories([]), []);
 
-console.log(`\n결과: ${pass} 통과 / ${fail} 실패`);
-process.exit(fail ? 1 : 0);
+done();
