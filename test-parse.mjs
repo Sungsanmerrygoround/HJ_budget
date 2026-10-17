@@ -185,5 +185,154 @@ check("거대 금액 제외", `
 17:00 900,000원
 `, ["정상가맹점|4500"]);
 
+// ── 날짜·수입 기록 검증 (오늘 날짜에 따라 결과가 바뀌지 않게 now를 고정) ──
+function checkValue(name, got, expected) {
+  const ok = JSON.stringify(got) === JSON.stringify(expected);
+  if (ok) { pass++; console.log(`✅ ${name}`); }
+  else {
+    fail++;
+    console.log(`❌ ${name}\n   기대: ${JSON.stringify(expected)}\n   실제: ${JSON.stringify(got)}`);
+  }
+}
+const datesOf = (r) => r.expenses.map((e) => `${e.merchant}|${e.date}`);
+const OCT17 = new Date(2026, 9, 17); // 2026-10-17
+
+// 21) [신규] 여러 장 이어 읽기: 헤더가 잘린 윗부분은 startDate를 쓰고, 첫/마지막 날짜를 돌려줌
+{
+  const r = parseTransactions(`
+스타벅스 -5,500원
+16:38 1,234,500원
+6월 6일 토요일
+GS25 -2,300원
+17:02 1,236,800원
+`, { startDate: "2026-06-07", now: OCT17 });
+  checkValue("startDate 이어받기", datesOf(r), ["스타벅스|2026-06-07", "GS25|2026-06-06"]);
+  checkValue("firstDate/lastDate", [r.firstDate, r.lastDate], ["2026-06-06", "2026-06-06"]);
+}
+
+// 22) [신규] 헤더가 없으면 오늘 날짜, firstDate는 null
+{
+  const r = parseTransactions(`
+스타벅스 -5,500원
+16:38 1,234,500원
+`, { now: OCT17 });
+  checkValue("헤더 없음 → 오늘", [datesOf(r), r.firstDate, r.lastDate], [["스타벅스|2026-10-17"], null, "2026-10-17"]);
+}
+
+// 23) [신규] 연도 경계: 1월에 12월 말 내역을 찍으면 작년 12월로 (올해 12월은 미래라 있을 수 없음)
+{
+  const r = parseTransactions(`
+1월 2일 토요일
+배달의민족 -23,000원
+19:30 1,000,000원
+12월 30일 수요일
+이마트 -45,200원
+18:40 1,023,000원
+`, { now: new Date(2027, 0, 3) });
+  checkValue("연도 경계(1월에 12월 내역)", datesOf(r), ["배달의민족|2027-01-02", "이마트|2026-12-30"]);
+}
+
+// 24) [신규] 오늘·내일 날짜 헤더는 올해 그대로 (시계 차이 하루는 봐줌)
+{
+  const r = parseTransactions(`
+10월 18일 일요일
+쿠팡 -19,800원
+10월 17일 토요일
+CU -3,600원
+`, { now: OCT17 });
+  checkValue("내일 날짜는 올해 유지", datesOf(r), ["쿠팡|2026-10-18", "CU|2026-10-17"]);
+}
+
+// 25) [신규] '일'만 읽힌 헤더: 이번 달로 보되, 미래면 지난달
+{
+  const r = parseTransactions(`
+2일 금요일
+쿠팡 -19,800원
+15일 화요일
+CU -3,600원
+`, { now: new Date(2026, 9, 3) });
+  checkValue("월 없는 헤더(미래면 지난달)", datesOf(r), ["쿠팡|2026-10-02", "CU|2026-09-15"]);
+}
+
+// 26) [신규] OCR 오독으로 생긴 없는 날짜(2월 30일)는 헤더로 쓰지 않음 → 앞 날짜 유지
+{
+  const r = parseTransactions(`
+2월 3일 화요일
+스타벅스 -5,500원
+2월 30일 월요일
+GS25 -2,300원
+`, { now: OCT17 });
+  checkValue("없는 날짜 헤더 무시", datesOf(r), ["스타벅스|2026-02-03", "GS25|2026-02-03"]);
+}
+
+// 27) [신규] 가맹점명에 '요일'이 들어간 거래 줄은 헤더로 오인하지 않음
+{
+  const r = parseTransactions(`
+6월 7일 일요일
+일요일카페 -5,000원
+13:00 1,000,000원
+`, { now: OCT17 });
+  checkValue("'요일' 가맹점 보존", datesOf(r), ["일요일카페|2026-06-07"]);
+}
+
+// 28) [신규] 일별 합계가 붙은 날짜 헤더는 거래가 아니라 헤더
+{
+  const r = parseTransactions(`
+6월 7일 일요일 -7,800원
+스타벅스 -5,500원
+GS25 -2,300원
+`, { now: OCT17 });
+  checkValue("합계 붙은 헤더", datesOf(r), ["스타벅스|2026-06-07", "GS25|2026-06-07"]);
+}
+
+// 29) [신규] 제외한 수입을 금액·날짜와 함께 기록 (여러 장 합칠 때 겹친 수입을 한 번만 세려고)
+{
+  const r = parseTransactions(`
+6월 7일 일요일
+이자입금 +1,200원
+09:00 1,500,000원
+맥도날드 -7,900원
+12:10 1,492,100원
+6월 6일 토요일
+캐시백 +300원
+`, { now: OCT17 });
+  checkValue("수입 기록", [r.incomes, r.excludedIncome], [[{ amount: 1200, date: "2026-06-07" }, { amount: 300, date: "2026-06-06" }], 2]);
+}
+
+// 30) [신규] 작은 회색 헤더의 OCR 오독: '월'→8·&, '일'→% (실제 인식 결과에서 나온 모양)
+{
+  const r = parseTransactions(`
+108 15% 목요일
+배달의민족 -23,000원
+19:30 1,241,100원
+10& 14일 수요일
+맥도날드 -7,900원
+128 30일 수요일
+이마트 -45,200원
+`, { now: new Date(2027, 0, 3) });
+  checkValue("헤더 오독(108 15%·10&·128) 복구", datesOf(r), ["배달의민족|2026-10-15", "맥도날드|2026-10-14", "이마트|2026-12-30"]);
+}
+
+// 31) [신규] 줄 끝 '원'을 &로 읽은 금액·잔액 복구 (줄 중간 &는 가맹점명이라 그대로)
+{
+  const r = parseTransactions(`
+6월 7일 일요일
+스타벅스 강남점 -5,500&
+16:38 1,234,500&
+7&7 마트 -5,000원
+12:10 1,240,000&
+`, { now: OCT17 });
+  checkValue("줄 끝 & → 원", r.expenses.map((e) => `${e.merchant}|${e.amount}|${e.time}`), ["스타벅스 강남점|5500|16:38", "7&7 마트|5000|12:10"]);
+}
+
+// 32) [신규] '요일' 사이에 공백이 끼어도 헤더로 ("목요 일")
+{
+  const r = parseTransactions(`
+6월 7일 일요 일
+스타벅스 -5,500원
+`, { now: OCT17 });
+  checkValue("'요 일' 공백 허용", datesOf(r), ["스타벅스|2026-06-07"]);
+}
+
 console.log(`\n결과: ${pass} 통과 / ${fail} 실패`);
 process.exit(fail ? 1 : 0);

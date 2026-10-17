@@ -39,25 +39,43 @@ const MAX_AMOUNT = 100000000;
 // 가맹점 이름(예: "큰지출가맹점", "수입식품")을 오인해 버리지 않도록, 요약에만 나오는 문구로 좁힌다.
 const SUMMARY_RE = /지난달|이번\s?달|비해|평균|쓰고\s?있|덜\s?쓰|더\s?쓰|모으고|^(소비|수입|지출|합계|총\s?지출)\s*[\d,.]+\s*원$/;
 
+// 날짜 헤더 "6월 7일 일요일". 보통 작은 회색 글씨라 OCR이 '월'을 &·8로, '일'을 %로 잘못 읽곤 해서
+// (실제로 "10월 15일 목요일" → "108 15% 목요일") 그런 경우도 날짜로 받아준다.
+const HEADER_RE = /요\s?일/;
+const MONTH_DAY_RE = /(\d{1,2})\s*[월윌&8]\s*(\d{1,2})\s*[일%]/;
+// 'N일' 부분. 금액이 같이 있는 '요일' 줄은 이게 있어야 헤더로 본다
+// (그래야 "일요일카페 -5,000원" 같은 거래 줄이 헤더로 오인돼 통째로 사라지지 않음)
+const DAY_RE = /(\d{1,2})\s*[일%]/;
+
 /**
  * @param {string} rawText OCR 원문
- * @returns {{expenses: Array, excludedIncome: number}}
+ * @param {{startDate?: string, now?: Date}} [opts]
+ *   startDate: 첫 날짜 헤더가 나오기 전까지 쓸 날짜(YYYY-MM-DD, 없으면 오늘).
+ *     여러 장을 이어 읽을 때 앞 장의 lastDate를 넘기면, 헤더가 위로 잘린 장의 윗부분 거래가 '오늘'로 잡히지 않는다.
+ *   now: '오늘'로 쓸 시각(테스트용, 없으면 현재 시각)
+ * @returns {{expenses: Array, incomes: Array<{amount: number, date: string}>, excludedIncome: number,
+ *            firstDate: string|null, lastDate: string}}
+ *   incomes = 제외한 수입(여러 장을 합칠 때 겹친 수입을 한 번만 세는 데 사용), excludedIncome = 그 개수,
+ *   firstDate = 처음 읽은 날짜 헤더(없으면 null), lastDate = 끝까지 읽었을 때의 날짜(다음 장으로 이어줄 값)
  */
-export function parseTransactions(rawText) {
+export function parseTransactions(rawText, opts = {}) {
   // 전각(full-width) 숫자·기호를 반각으로 정규화(NFKC): OCR이 "－５，５００원" 같은
   // 전각 문자를 내보내면 금액 정규식이 통째로 놓쳐 거래가 통째로 사라진다.
   // (반각 하이픈만 변환되고 en/em 대시는 그대로라, 아래 isMinus의 대시 처리도 유지됨)
+  // 줄 끝 금액의 '원'을 OCR이 '&'로 읽는 일도 잦아("1,234,500&") 줄 끝에 한해 '원'으로 되돌린다.
+  // (줄 중간의 &는 "7&7 마트" 같은 가맹점명일 수 있어 건드리지 않음)
   const lines = String(rawText ?? "")
     .normalize("NFKC")
     .split("\n")
-    .map((l) => l.trim())
+    .map((l) => l.trim().replace(/(\d)\s*&$/, "$1원"))
     .filter(Boolean);
 
   const expenses = [];
-  let excludedIncome = 0;
+  const incomes = [];
 
-  const now = new Date();
-  let currentDate = toISO(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  const now = opts.now || new Date();
+  let currentDate = opts.startDate || toISO(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  let firstDate = null;
 
   // 주의: 예전엔 "첫 날짜 헤더 위는 전부 무시"했지만, 화면을 스크롤해 캡쳐하면
   // 헤더가 위로 잘려 나가 실제 거래가 맨 위에 올 수 있다(그 거래까지 버려짐).
@@ -77,9 +95,13 @@ export function parseTransactions(rawText) {
   for (let idx = 0; idx < lines.length; idx++) {
     const line = lines[idx];
 
-    // 1) 날짜 구분선? "6월 7일 일요일"
-    if (line.includes("요일")) {
-      currentDate = parseDateHeader(line, now) ?? currentDate;
+    // 1) 날짜 구분선? "6월 7일 일요일" (일별 합계가 붙은 "6월 7일 일요일 -7,800원"도 헤더)
+    if (HEADER_RE.test(line) && (DAY_RE.test(line) || !matchAmount(line))) {
+      const headerDate = parseDateHeader(line, now);
+      if (headerDate) {
+        currentDate = headerDate;
+        if (!firstDate) firstDate = headerDate;
+      }
       lastTxn = null;
       expectBalance = false;
       pendingMerchant = "";
@@ -124,7 +146,7 @@ export function parseTransactions(rawText) {
     // ── 부호 있는 줄: 부호가 곧 거래 유형 ──
     if (sign === "+") {
       // 수입(입금·이자·캐시백) → 제외. 다음 잔액을 기다림.
-      excludedIncome++;
+      incomes.push({ amount, date: currentDate });
       lastTxn = null;
       expectBalance = true;
       pendingMerchant = ""; // 수입 가맹점명이 다음 지출로 새지 않도록 비움
@@ -243,7 +265,10 @@ export function parseTransactions(rawText) {
   // 복구하지 못한 깨진(0원) 항목과, 비상식적으로 큰(잔액·자릿수 오인) 금액은 제외
   return {
     expenses: expenses.filter((e) => e.amount > 0 && e.amount <= MAX_AMOUNT),
-    excludedIncome,
+    incomes,
+    excludedIncome: incomes.length,
+    firstDate,
+    lastDate: currentDate,
   };
 }
 
@@ -283,20 +308,38 @@ function cleanMerchant(s) {
     .trim();
 }
 
+// 날짜 헤더 → "YYYY-MM-DD". 헤더엔 연도가 없어 올해로 보되, 거래내역에 미래 날짜는 없으니
+// 올해로 치면 미래가 되는 날짜는 작년 것으로 본다(1월에 12월 말 내역을 찍은 경우).
+// '일'만 읽힌 헤더도 같은 이치로 이번 달로 보되, 미래면 지난달.
 function parseDateHeader(line, now) {
+  let year = now.getFullYear();
   let mo, day;
-  const clean = line.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  const clean = line.match(MONTH_DAY_RE);
   if (clean) {
     mo = Number(clean[1]);
     day = Number(clean[2]);
+    if (mo < 1 || mo > 12 || day < 1 || day > 31) return null;
+    if (isFuture(year, mo, day, now)) year--;
   } else {
-    const dm = line.match(/(\d{1,2})\s*일/);
+    const dm = line.match(DAY_RE);
     if (!dm) return null;
     day = Number(dm[1]);
     mo = now.getMonth() + 1;
+    if (day < 1 || day > 31) return null;
+    if (isFuture(year, mo, day, now)) {
+      mo--;
+      if (mo === 0) { mo = 12; year--; }
+    }
   }
-  if (!mo || !day) return null;
-  return toISO(now.getFullYear(), mo, day);
+  // OCR이 숫자를 잘못 읽어 생긴 없는 날짜(2월 30일 등)는 헤더로 쓰지 않음
+  if (day > new Date(year, mo, 0).getDate()) return null;
+  return toISO(year, mo, day);
+}
+
+// 그 날짜가 내일보다 뒤(미래)인지. 하루는 기기 시계·시간대 차이로 봐준다.
+function isFuture(year, month, day, now) {
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  return new Date(year, month - 1, day) > tomorrow;
 }
 
 function toISO(year, month, day) {

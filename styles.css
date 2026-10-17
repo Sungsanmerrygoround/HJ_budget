@@ -252,17 +252,32 @@ select:focus, input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px 
 .capture-help b { color: var(--text); }
 .upload-btn { display: block; text-align: center; background: var(--primary-soft); color: var(--primary); font-weight: 800; font-size: 14px; padding: 13px; border-radius: var(--radius-sm); cursor: pointer; border: 1.5px dashed rgba(37,99,235,0.35); }
 .upload-btn:active { background: var(--surface2); }
+.capture-card.busy .upload-btn { opacity: 0.5; pointer-events: none; }
 .cap-preview { margin-top: 12px; min-height: 120px; border: 1.5px dashed rgba(37,99,235,0.25); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; overflow: hidden; background: var(--primary-soft); }
 .cap-preview.empty { color: var(--sub2); font-size: 13px; }
-.cap-preview img { max-width: 100%; max-height: 360px; display: block; }
+.cap-preview:not(.empty) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 6px; align-items: start; }
+.cap-thumb { position: relative; aspect-ratio: 3 / 4; border-radius: 10px; overflow: hidden; background: var(--surface); }
+.cap-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+/* 한 장만 골랐을 땐 예전처럼 크게 */
+.cap-thumb:only-child { grid-column: 1 / -1; aspect-ratio: auto; background: none; }
+.cap-thumb:only-child img { width: auto; max-width: 100%; height: auto; max-height: 360px; object-fit: contain; margin: 0 auto; }
+.cap-thumb-no { position: absolute; left: 5px; top: 5px; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--primary); color: #fff; font-size: 11px; font-weight: 800; line-height: 20px; text-align: center; }
+.cap-thumb-del { position: absolute; right: 5px; top: 5px; width: 28px; height: 28px; padding: 0; border: none; border-radius: 50%; background: rgba(15,23,42,0.55); color: #fff; font-size: 12px; cursor: pointer; }
+.capture-card.busy .cap-thumb-del { display: none; }
+.cap-group { margin: 16px 0 8px; font-size: 12px; font-weight: 800; color: var(--sub); }
+.cap-group:first-child { margin-top: 0; }
 .cap-status { margin-top: 12px; font-size: 13px; color: var(--primary); font-weight: 700; text-align: center; }
 .cap-editor { margin-top: 14px; }
 .cap-raw { margin-top: 10px; font-size: 12px; color: var(--sub); }
 .cap-raw summary { cursor: pointer; font-weight: 700; padding: 4px 0; }
 .cap-raw pre { margin-top: 6px; padding: 10px; background: var(--surface); border-radius: 12px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: 11px; line-height: 1.5; }
-.cap-row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+/* 확인 목록 한 줄 = [내용 · 금액] / [날짜 · 카테고리 · 삭제] 두 줄짜리 카드 */
+.cap-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; padding: 8px; background: var(--bg); border: 1.5px solid transparent; border-radius: 14px; }
+.cap-row.invalid { border-color: var(--red); background: var(--red-soft); }
+.cap-line { display: flex; gap: 6px; align-items: center; }
 .cap-row input, .cap-row select { padding: 9px 9px; font-size: 13px; border-radius: 10px; min-width: 0; }
-.cap-row .cap-desc { flex: 1.4; }
+.cap-row .cap-desc { flex: 1.6; }
+.cap-row .cap-date { flex: 1.3; }
 .cap-row .cap-cat {
   flex: 1;
   padding-right: 20px;
@@ -270,8 +285,11 @@ select:focus, input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px 
   background-repeat: no-repeat;
   background-position: right 7px center;
 }
-.cap-row .cap-amt { flex: 0.9; text-align: right; }
+.cap-row .cap-amt { flex: 1; text-align: right; }
 .cap-row .cap-del { flex: none; width: 34px; padding: 0; background: var(--red-soft); color: var(--red); border: 1px solid rgba(220,53,69,0.15); border-radius: 10px; height: 34px; cursor: pointer; }
+.cap-add-btn { display: block; width: 100%; margin-top: 4px; padding: 12px; background: var(--surface); color: var(--primary); font-weight: 800; font-size: 13.5px; font-family: var(--sans); border: 1.5px dashed rgba(37,99,235,0.35); border-radius: var(--radius-sm); cursor: pointer; }
+.cap-add-btn:active { background: var(--primary-soft); }
+.capture-card.busy .cap-editor { opacity: 0.55; pointer-events: none; }
 .cap-import-row { display: flex; flex-direction: column; align-items: stretch; margin-top: 14px; gap: 10px; }
 .cap-import-row .total { font-size: 13px; color: var(--sub); text-align: right; }
 .cap-import-row .total b { color: var(--text); font-size: 15px; }

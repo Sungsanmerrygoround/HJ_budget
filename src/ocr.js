@@ -19,27 +19,22 @@
 const TARGET_WIDTH = 1600;
 // 너무 큰 이미지는 메모리/속도 문제가 생기니 상한을 둠
 const MAX_WIDTH = 2600;
+// 캔버스 전체 픽셀 상한: iOS Safari는 약 1,670만 픽셀을 넘는 캔버스를 그리지 못해,
+// 세로로 아주 긴 캡쳐(스크롤 캡쳐 등)를 확대하면 빈 그림이 되어 인식이 통째로 실패함
+const MAX_PIXELS = 16000000;
 
 /**
- * 이미지에서 글자를 추출합니다.
- * @param {File|Blob|string} image - 고른 파일 또는 이미지 URL
- * @param {(percent:number)=>void} [onProgress] - 진행률(0~100) 콜백
- * @param {{preprocess?: boolean}} [opts] - preprocess:false면 원본 그대로 인식(재시도용)
- * @returns {Promise<string>} 추출된 원문 텍스트
+ * OCR 작업자(worker)를 하나 띄워, 여러 장을 차례로 읽을 수 있는 리더를 돌려줍니다.
+ * 작업자를 띄울 때마다 한글 데이터를 다시 불러오므로, 여러 장은 한 작업자로 이어 읽는 게 훨씬 빠릅니다.
+ * 다 읽었으면 terminate()로 꼭 정리하세요.
+ * @returns {Promise<{
+ *   read: (image: File|Blob|string, onProgress?: (percent:number)=>void, opts?: {preprocess?: boolean}) => Promise<string>,
+ *   terminate: () => Promise<void>,
+ * }>} read: 한 장의 원문 텍스트 (preprocess:false면 원본 그대로 인식 — 재시도용)
  */
-export async function extractText(image, onProgress, opts = {}) {
-  const usePre = opts.preprocess !== false;
-
-  // 전처리에 실패하면(아주 옛날 브라우저 등) 원본으로라도 진행
-  let input = image;
-  if (usePre) {
-    try {
-      input = await preprocessImage(image);
-    } catch (e) {
-      console.warn("이미지 전처리 실패 — 원본으로 인식 진행", e);
-    }
-  }
-
+export async function createReader() {
+  // logger는 작업자를 띄울 때 한 번만 정해지므로, 지금 읽는 장의 진행률 콜백을 여기에 바꿔 끼웁니다.
+  let onProgress = null;
   const worker = await Tesseract.createWorker("kor+eng", 1, {
     // logger: OCR이 진행되는 동안 상태를 계속 알려줍니다.
     logger: (m) => {
@@ -47,6 +42,9 @@ export async function extractText(image, onProgress, opts = {}) {
         onProgress(Math.round(m.progress * 100));
       }
     },
+    // 이게 없으면 Tesseract.js가 실패한 작업(깨진 그림 등)의 오류를 promise 거부와 별개로 전역에 한 번 더 던져
+    // '처리 안 된 오류'가 남는다. 실패는 read()의 거부로 이미 받아 처리하므로 여기선 기록만.
+    errorHandler: (err) => console.warn("OCR 작업 실패", err),
   });
   try {
     await worker.setParameters({
@@ -57,12 +55,33 @@ export async function extractText(image, onProgress, opts = {}) {
       // 단어 사이 공백을 보존 (가맹점명 + 금액이 한 줄에 같이 있어서)
       preserve_interword_spaces: "1",
     });
-    const result = await worker.recognize(input);
-    // result.data.text 안에 인식된 전체 글자가 들어있습니다.
-    return result.data.text;
-  } finally {
+  } catch (e) {
     await worker.terminate();
+    throw e;
   }
+
+  return {
+    async read(image, progress, opts = {}) {
+      // 전처리에 실패하면(아주 옛날 브라우저 등) 원본으로라도 진행
+      let input = image;
+      if (opts.preprocess !== false) {
+        try {
+          input = await preprocessImage(image);
+        } catch (e) {
+          console.warn("이미지 전처리 실패 — 원본으로 인식 진행", e);
+        }
+      }
+      onProgress = progress || null;
+      try {
+        const result = await worker.recognize(input);
+        // result.data.text 안에 인식된 전체 글자가 들어있습니다.
+        return result.data.text;
+      } finally {
+        onProgress = null;
+      }
+    },
+    terminate: () => worker.terminate(),
+  };
 }
 
 /**
@@ -78,6 +97,8 @@ async function preprocessImage(image) {
   let scale = 1;
   if (bitmap.width < TARGET_WIDTH) scale = TARGET_WIDTH / bitmap.width;
   if (bitmap.width * scale > MAX_WIDTH) scale = MAX_WIDTH / bitmap.width;
+  const pixels = bitmap.width * bitmap.height * scale * scale;
+  if (pixels > MAX_PIXELS) scale *= Math.sqrt(MAX_PIXELS / pixels);
 
   const w = Math.round(bitmap.width * scale);
   const h = Math.round(bitmap.height * scale);
@@ -116,6 +137,12 @@ async function preprocessImage(image) {
   for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc > clip) { lo = v; break; } }
   acc = 0;
   for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc > clip) { hi = v; break; } }
+  // 글자가 아주 적은 캡쳐(거래 몇 건 + 빈 공간)는 글자가 1%도 안 돼 lo·hi가 둘 다 배경색에 붙고,
+  // 그대로 펴면 그림 전체가 한 색(검정)이 돼 아무것도 못 읽음 → 대비는 최대 2배까지만 키움(배경 반대쪽으로 범위 확보)
+  if (hi - lo < 128) {
+    if (invert) hi = Math.min(255, lo + 128);
+    else lo = Math.max(0, hi - 128);
+  }
   const range = Math.max(hi - lo, 1);
 
   for (let i = 0, g = 0; i < px.length; i += 4, g++) {

@@ -120,14 +120,20 @@ function reportSaveError(e) {
   showToast("저장 오류. 인터넷 연결을 확인해주세요.", "error");
 }
 
-// ── 연도 이동 ──
-function changeYear(delta) {
-  currentYear += delta;
+// ── 연·월 이동 ──
+// 보고 있는 연·월을 바꾸고 그 달을 불러옵니다. (캡쳐로 다른 달에 추가했을 때도 사용)
+function showMonth(year, month) {
+  currentYear = year;
+  currentMonth = month;
   searchQuery = '';
   const si = $("searchInput"); if (si) si.value = '';
   buildMonthTabs();
   syncAddDate();
-  loadData();
+  return loadData();
+}
+
+function changeYear(delta) {
+  showMonth(currentYear + delta, currentMonth);
 }
 
 // ── 월별 탭 ──
@@ -139,14 +145,7 @@ function buildMonthTabs() {
     const btn = document.createElement("button");
     btn.className = "month-tab" + (i === currentMonth ? " active" : "");
     btn.textContent = m;
-    btn.onclick = () => {
-      currentMonth = i;
-      searchQuery = '';
-      const si = $("searchInput"); if (si) si.value = '';
-      buildMonthTabs();
-      syncAddDate();
-      loadData();
-    };
+    btn.onclick = () => showMonth(currentYear, i);
     container.appendChild(btn);
   });
   setTimeout(() => {
@@ -475,7 +474,7 @@ function wireEvents() {
     getUser,
     loadMonth,
     appendEntries,
-    loadData,
+    showMonth,
     switchView,
     getYear: () => currentYear,
     getMonth: () => currentMonth,
