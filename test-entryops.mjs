@@ -1,6 +1,6 @@
 // 검증 스크립트: node test-entryops.mjs
 import { check, done } from "./test-util.mjs";
-import { entryKey, replaceEntry, removeEntry, newEntriesOnly, sameTxn, pairUp } from "./src/entryops.js";
+import { entryKey, replaceEntry, removeEntry, newEntriesOnly, sameTxn, pairUp, byDateDesc } from "./src/entryops.js";
 import { genId } from "./src/id.js";
 
 const A = { date: "6/7 16:38", desc: "스타벅스", amount: 5500, category: "외식비" };
@@ -111,6 +111,20 @@ check("sameTxn 시각 모름 + 이름 정규화(GS25 역삼점 = GS25역삼점)"
 {
   const r = pairUp([1, 2, 2], [2, 2, 2, 3], (a, b) => a === b);
   check("pairUp 짝 개수까지 맞춤", [r.pairs, r.fresh], [[[2, 2], [2, 2]], [2, 3]]);
+}
+
+// ── byDateDesc: 내역 목록을 날짜·시각 최신순으로 ──
+{
+  const list = [
+    { desc: "a", date: "10/15 19:00", _origIdx: 0 },
+    { desc: "b", date: "10/3 12:00", _origIdx: 1 },
+    { desc: "c", date: "10/17 8:30", _origIdx: 2 },
+    { desc: "d", date: "10/15 12:10", _origIdx: 3 },
+    { desc: "e", date: "", _origIdx: 4 },
+    { desc: "f", date: "10/15 12:10", _origIdx: 5 },
+  ];
+  check("byDateDesc 날짜·시각 최신순, 같으면 나중에 넣은 것이 위, 날짜 없는 건 맨 아래",
+    list.slice().sort(byDateDesc).map((e) => e.desc).join(""), "cafdbe");
 }
 
 done();

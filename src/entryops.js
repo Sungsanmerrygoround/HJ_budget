@@ -14,12 +14,23 @@
 //   그래서 새 항목에는 생성 시 고유 id(id.js의 genId)를 붙입니다. id가 없는 옛
 //   데이터는 (날짜|내용|금액)으로 폴백하고, 편집을 거치면 id가 채워집니다(자가 치유).
 
-import { dateKey, timeOf } from "./datefmt.js";
+import { dateKey, timeOf, dayOf } from "./datefmt.js";
 import { normMerchant } from "./categorize.js";
 
 /** 내역을 식별하는 키: id가 있으면 id, 없으면 "날짜|내용|금액"(옛 데이터 폴백) */
 export function entryKey(e) {
   return e.id || `${e.date}|${e.desc}|${e.amount}`;
+}
+
+/**
+ * 날짜·시각 최신순 정렬용 비교 함수 (같은 달 안의 내역). 같으면 나중에 넣은 것이 위(_origIdx가 있으면 그것으로),
+ * 날짜를 못 읽는 옛 데이터는 맨 아래.
+ */
+export function byDateDesc(a, b) {
+  const da = dayOf(a.date), db = dayOf(b.date);
+  const va = Number.isNaN(da) ? -1 : da * 1440 + minutesOf(timeOf(a.date, null));
+  const vb = Number.isNaN(db) ? -1 : db * 1440 + minutesOf(timeOf(b.date, null));
+  return vb - va || (b._origIdx ?? 0) - (a._origIdx ?? 0);
 }
 
 /** key와 일치하는 첫 항목을 newEntry로 교체한 새 배열을 돌려줍니다. */

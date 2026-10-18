@@ -31,4 +31,9 @@ check("rankedCategories 정렬/필터",
   ["외식비|8000", "교통비|2000", "기타|1000"]);
 check("rankedCategories 빈 배열", rankedCategories([]), []);
 
+// 옛 데이터에 문자로 저장된 금액이 섞여도 숫자로 더함 (예전엔 "3000"이 이어붙여져 합계가 깨졌음)
+const mixed = [{ category: "외식비", amount: 5000 }, { category: "외식비", amount: "3000" }, { category: "기타", amount: undefined }];
+check("sumAmount 문자 금액", sumAmount(mixed), 8000);
+check("categoryTotals 문자 금액", categoryTotals(mixed)[CATS.indexOf("외식비")], 8000);
+
 done();

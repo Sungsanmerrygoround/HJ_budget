@@ -5,7 +5,8 @@
 import { CATS, CAT_ICONS, CAT_COLORS } from "./categorize.js";
 import { $, fmt, fmtShort, esc } from "./dom.js";
 import { sumAmount, categoryTotals, rankedCategories } from "./aggregate.js";
-import { dayOf, dateKey } from "./datefmt.js";
+import { dayOf } from "./datefmt.js";
+import { byDateDesc } from "./entryops.js";
 
 let chartInstance = null;
 
@@ -49,7 +50,7 @@ export function renderWeekBars(entries, year, month) {
     const day = dayOf(e.date);
     if (!day || isNaN(day)) return;
     const dow = new Date(year, month, day).getDay(); // 0=일
-    totals[(dow + 6) % 7] += e.amount; // 월요일 시작으로 변환
+    totals[(dow + 6) % 7] += Number(e.amount) || 0; // 월요일 시작으로 변환
   });
   const max = Math.max(...totals, 1);
   const t = new Date();
@@ -140,18 +141,15 @@ export function renderCatList(entries) {
     .join("");
 }
 
+// 내역 목록을 받은 순서대로 그립니다 (정렬은 부르는 쪽에서). 각 줄의 data-index는 원래 배열의 위치(_origIdx)
 export function renderEntryList(entries, emptyMsg = "아직 기록이 없어요 💙<br>오늘 첫 소비를 담아볼까요?") {
   const container = $("entryList");
   if (entries.length === 0) {
     container.innerHTML = `<div class="empty">${emptyMsg}</div>`;
     return;
   }
-  container.innerHTML = [...entries]
-    .reverse()
-    .map((e, di) => {
-      const index = "_origIdx" in e ? e._origIdx : entries.indexOf(e);
-      return entryItemHTML(e, index, Math.min(di * 0.04, 0.32));
-    })
+  container.innerHTML = entries
+    .map((e, di) => entryItemHTML(e, "_origIdx" in e ? e._origIdx : di, Math.min(di * 0.04, 0.32)))
     .join("");
 }
 
@@ -209,32 +207,32 @@ export function renderCalendar(entries, year, month, selectedDay) {
   const today = new Date();
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
+  // '일' 숫자로 묶음 ("10/07"처럼 앞자리 0이 붙은 옛 데이터도 7일로). 각 항목은 원래 배열 위치를 기억
   const dayMap = {};
-  entries.forEach((e) => {
-    const dayStr = dateKey(e.date);
-    if (!dayMap[dayStr]) dayMap[dayStr] = [];
-    dayMap[dayStr].push(e);
+  entries.forEach((e, i) => {
+    const d = dayOf(e.date);
+    if (Number.isNaN(d)) return;
+    (dayMap[d] ??= []).push({ ...e, _origIdx: i });
   });
   const grid = $("calGrid");
   let html = "";
   for (let i = 0; i < firstDay; i++) html += `<div class="cal-cell empty"></div>`;
   for (let d = 1; d <= daysInMonth; d++) {
-    const dayStr = `${month + 1}/${d}`;
-    const dayEntries = dayMap[dayStr] || [];
+    const dayEntries = dayMap[d] || [];
     const total = sumAmount(dayEntries);
     const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === d;
     const hasData = dayEntries.length > 0;
+    // 1만 미만은 "4,500"처럼 그대로 (예전엔 "0.0만"으로 보였음)
     html += `<div class="cal-cell ${hasData ? "has-data" : ""} ${isToday ? "today" : ""} ${selectedDay === d ? "selected-day" : ""}" ${hasData ? `data-day="${d}"` : ""}>
-      <div class="cal-day">${d}</div>${total > 0 ? `<div class="cal-amt">${(total / 10000).toFixed(1)}만</div>` : ""}</div>`;
+      <div class="cal-day">${d}</div>${total > 0 ? `<div class="cal-amt">${fmtShort(total)}</div>` : ""}</div>`;
   }
   grid.innerHTML = html;
   if (selectedDay) {
-    const dayStr = `${month + 1}/${selectedDay}`;
-    const dayEntries = dayMap[dayStr] || [];
+    const dayEntries = (dayMap[selectedDay] || []).sort(byDateDesc);
     const total = sumAmount(dayEntries);
     $("dayDetailTitle").textContent = `${month + 1}월 ${selectedDay}일 · ${fmt(total)}`;
     $("dayEntryList").innerHTML = dayEntries
-      .map((e) => entryItemHTML(e, entries.indexOf(e)))
+      .map((e) => entryItemHTML(e, e._origIdx))
       .join("");
     $("dayDetail").style.display = "block";
   } else {

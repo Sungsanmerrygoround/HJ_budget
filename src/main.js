@@ -5,10 +5,10 @@ import { categorize, normMerchant, CATS, CAT_ICONS } from "./categorize.js";
 import { isConfigured } from "./firebase-config.js";
 import { $, fmt, esc, showLoading, showToast } from "./dom.js";
 import { sumAmount } from "./aggregate.js";
-import { dayOf, timeOf, makeEntryDate, clampDay, toISO, todayISO, daysInMonth } from "./datefmt.js";
-import { entryKey, replaceEntry, removeEntry } from "./entryops.js";
+import { dayOf, timeOf, makeEntryDate, clampDay, toISO, todayISO, daysInMonth, parseISO } from "./datefmt.js";
+import { entryKey, replaceEntry, removeEntry, byDateDesc } from "./entryops.js";
 import { genId } from "./id.js";
-import { getHouseholdId, shareLink, setHouseholdId } from "./household.js";
+import { getHouseholdId, shareLink, setHouseholdId, hidFromInput } from "./household.js";
 import {
   renderWeekBars, renderCatChips, renderChart,
   renderCatList, renderEntryList, renderCalendar,
@@ -24,6 +24,10 @@ let currentYear = now.getFullYear();
 let currentMonth = now.getMonth(); // 0~11
 let cachedEntries = [];
 let cachedBudget = 0;
+// cachedEntries가 어느 달 것인지. 달을 옮기면 currentMonth는 바로 바뀌지만 내역은 불러온 뒤에야 바뀌므로,
+// 그 사이 화면의 항목을 눌러 고쳐도 그 항목이 든 달을 고치도록 따로 기억함
+let cachedMonth = { year: currentYear, month: currentMonth };
+let loadSeq = 0; // 마지막으로 요청한 불러오기 번호 (늦게 온 옛 응답을 버리는 데 사용)
 let activeView = "add";
 // 편집 모달을 연 시점의 항목 스냅샷과 그 항목이 든 연·월 (저장 시점의 cachedEntries 변경이나,
 // 모달을 열어 둔 사이 보고 있는 달이 바뀌어도(캡쳐 저장 후 이동 등) 원래 달의 그 항목을 고침)
@@ -83,23 +87,53 @@ function fillCategorySelects() {
 
 // ── 데이터 로드/저장 ──
 async function loadData() {
+  const seq = ++loadSeq;
+  const year = currentYear;
+  const month = currentMonth;
   if (!loadMonth || !getUser()) {
-    cachedEntries = [];
-    cachedBudget = 0;
+    setCached(year, month, [], 0);
     render();
     return;
   }
   showLoading(true);
+  let data = null;
   try {
-    const data = await loadMonth(currentYear, currentMonth);
-    cachedEntries = data.entries;
-    cachedBudget = data.budget;
+    data = await loadMonth(year, month);
   } catch (e) {
     console.error(e);
   }
+  // 그사이 다른 달로 옮겼거나 다시 불러왔으면, 늦게 온 이 응답은 버림 (9월 응답이 10월 화면을 덮지 않게)
+  if (seq !== loadSeq) return;
   showLoading(false);
+  if (data) {
+    setCached(year, month, data.entries, data.budget);
+  } else {
+    // 못 불러왔을 때 다른 달 내역이 이 달 것처럼 남아 있으면 안 됨 (같은 달을 다시 불러오다 실패한 거면 그대로 둠)
+    if (cachedMonth.year !== year || cachedMonth.month !== month) setCached(year, month, [], 0);
+    showToast(`${month + 1}월 내역을 불러오지 못했어요. 인터넷 연결을 확인해주세요.`, "error");
+  }
   render();
   if (activeView === "chart") loadAndRenderTrend();
+}
+
+function setCached(year, month, entries, budget) {
+  cachedEntries = entries;
+  cachedBudget = budget;
+  cachedMonth = { year, month };
+}
+
+// 저장 중에 또 누르면(더블 탭) 무시 — 같은 내역이 두 번 저장되지 않게
+function once(fn) {
+  let running = false;
+  return async (...args) => {
+    if (running) return;
+    running = true;
+    try {
+      await fn(...args);
+    } finally {
+      running = false;
+    }
+  };
 }
 
 // 저장 가능한 상태(로그인 완료 + Firebase 연결)인지 확인합니다.
@@ -171,11 +205,16 @@ function buildMonthTabs() {
 function render() {
   const entries = cachedEntries;
   const budget = cachedBudget;
+  const { year, month } = cachedMonth;
   const expense = sumAmount(entries);
   const remain = budget - expense;
   const realPct = budget > 0 ? Math.round((expense / budget) * 100) : 0;
   const pct = Math.min(realPct, 100);
 
+  // 다른 달을 보고 있을 때 '이번 달'로 읽히지 않게 달 이름을 붙임
+  const label = `${year !== new Date().getFullYear() ? `${year}년 ` : ""}${month + 1}월`;
+  $("heroLabel").textContent = `${label} 지출`;
+  $("budgetInput").placeholder = `${label} 예산 (원)`;
   $("totalExpense").textContent = fmt(expense);
   $("totalBudget").textContent = budget > 0 ? fmt(budget) : "미설정";
 
@@ -199,25 +238,25 @@ function render() {
   updateGaugeColors(realPct);
   gauge.classList.toggle("gauge-danger", realPct >= 100);
 
-  renderWeekBars(entries, currentYear, currentMonth);
+  renderWeekBars(entries, year, month);
   renderCatChips(entries);
   renderChart(entries);
   renderCatList(entries);
   renderList();
 
-  if (activeView === "cal") renderCalendar(cachedEntries, currentYear, currentMonth);
+  if (activeView === "cal") renderCalendar(entries, year, month);
 }
 
-// 검색어를 적용해 '내역' 목록만 그립니다.
+// 검색어를 적용해 '내역' 목록만 그립니다. (날짜·시각 최신순)
 // 검색은 목록에만 영향을 주므로, 타이핑마다 차트·게이지까지 다시 그리지 않습니다.
 function renderList() {
   const entries = cachedEntries;
-  const tagged = entries.map((e, i) => ({ ...e, _origIdx: i }));
-  const visible = searchQuery
-    ? tagged.filter((e) =>
-        e.desc.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        e.category.includes(searchQuery))
-    : tagged;
+  const q = searchQuery.toLowerCase();
+  // 내용·분류가 비어 있는 옛 데이터가 있어도 검색이 멈추지 않게 문자열로 바꿔 비교
+  const visible = entries
+    .map((e, i) => ({ ...e, _origIdx: i }))
+    .filter((e) => !q || String(e.desc ?? "").toLowerCase().includes(q) || String(e.category ?? "").toLowerCase().includes(q))
+    .sort(byDateDesc);
   const emptyMsg = searchQuery && entries.length > 0
     ? "검색 결과가 없어요"
     : "아직 기록이 없어요 💙<br>오늘 첫 소비를 담아볼까요?";
@@ -234,18 +273,18 @@ async function addEntry() {
     return;
   }
   if (!ensureReady()) return;
-  // 날짜: 보고 있는 달(currentMonth)로 고정하고, 고른 '일'만 사용 (월 불일치 방지)
-  const d = new Date();
-  const hm = `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
-  const { last } = monthBounds();
-  const day = resolveDay($("entryDate").value, d.getDate(), last);
-  const date = makeEntryDate(currentMonth, day, hm);
-
-  const entry = { category, desc, amount, date, id: genId() };
+  // 날짜: 고른 날짜 그대로, 그 날짜가 속한 달 문서에 저장 (날짜 칸이 비었거나 깨졌으면 보고 있는 달의 오늘·말일).
+  // 예전엔 보고 있는 달로 고정하고 '일'만 써서, 다른 달 날짜(아이폰은 날짜 칸의 범위 제한을 무시하기도 함)를
+  // 고르면 9/30이 10/30으로 조용히 바뀌었음
+  const now = new Date();
+  const hm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const picked = parseISO($("entryDate").value) ||
+    { year: currentYear, month: currentMonth + 1, day: clampDay(now.getDate(), daysInMonth(currentYear, currentMonth + 1)) };
+  const entry = { category, desc, amount, date: makeEntryDate(picked.month - 1, picked.day, hm), id: genId() };
 
   // 원자적 추가: 다른 가족이 동시에 넣은 내역을 덮어쓰지 않음
   try {
-    await appendEntries(currentYear, currentMonth, [entry]);
+    await appendEntries(picked.year, picked.month - 1, [entry]);
   } catch (e) {
     reportSaveError(e);
     return;
@@ -254,7 +293,8 @@ async function addEntry() {
   $("amount").value = "";
   syncAddDate();
   await loadData(); // 서버 최신본으로 갱신(다른 가족 추가분 포함) + 재렌더
-  showToast("✅ 추가됐어요!");
+  const otherMonth = picked.year !== currentYear || picked.month - 1 !== currentMonth;
+  showToast(otherMonth ? `✅ ${picked.month}월 ${picked.day}일에 추가했어요 (${picked.month}월 탭에서 보여요)` : "✅ 추가됐어요!");
 }
 
 // 그 달(기본: 보고 있는 달, month는 0~11)의 날짜 범위
@@ -263,24 +303,14 @@ function monthBounds(year = currentYear, month = currentMonth) {
   return { min: toISO(year, month + 1, 1), max: toISO(year, month + 1, last), last };
 }
 
-// 날짜 입력값('YYYY-MM-DD')에서 '일'을 뽑아 월 범위(last)로 맞춥니다.
-// 입력이 비었거나 깨졌으면 fallbackDay(항상 유효한 값)를 씁니다.
-function resolveDay(inputVal, fallbackDay, last) {
-  let day = inputVal ? parseInt(inputVal.split("-")[2]) : fallbackDay;
-  if (!day || isNaN(day)) day = fallbackDay;
-  return clampDay(day, last);
-}
-
-// 추가 폼의 날짜 입력을 "보고 있는 달"에 맞춰 동기화 (월 불일치 방지)
+// 추가 폼의 날짜 기본값을 "보고 있는 달"에 맞춤 (이번 달이면 오늘, 다른 달이면 그 달 1일).
+// 다른 달 날짜도 고를 수 있고, 고른 날짜의 달에 저장됨
 function syncAddDate() {
   const el = $("entryDate");
   if (!el) return;
-  const { min, max } = monthBounds();
-  el.min = min;
-  el.max = max;
   const t = new Date();
   const isRealThisMonth = currentYear === t.getFullYear() && currentMonth === t.getMonth();
-  el.value = isRealThisMonth ? todayISO(t) : min;
+  el.value = isRealThisMonth ? todayISO(t) : monthBounds().min;
 }
 
 // ── 뷰 전환 ──
@@ -291,18 +321,18 @@ function switchView(view) {
   document.querySelectorAll(".view-panel").forEach((p) => p.classList.remove("active"));
   $("panel-" + view).classList.add("active");
   if (view === "chart") { render(); loadAndRenderTrend(); }
-  if (view === "cal") renderCalendar(cachedEntries, currentYear, currentMonth);
+  if (view === "cal") renderCalendar(cachedEntries, cachedMonth.year, cachedMonth.month);
 }
 
 // ── 카테고리 상세 모달 ──
 function openModal(cat) {
-  const entries = cachedEntries.filter((e) => e.category === cat);
+  const entries = cachedEntries.filter((e) => e.category === cat).sort(byDateDesc);
   const total = sumAmount(entries);
   $("modalTitle").textContent = `${CAT_ICONS[cat] || "📦"} ${cat} · ${fmt(total)}`;
   $("modalBody").innerHTML =
     entries.length === 0
       ? '<div class="empty">내역이 없어요</div>'
-      : [...entries].reverse().map((e) => `<div class="detail-item"><div><div class="detail-desc">${esc(e.desc)}</div><div class="detail-meta">${esc(e.date)}</div></div><div class="detail-amt">-${fmt(e.amount)}</div></div>`).join("");
+      : entries.map((e) => `<div class="detail-item"><div><div class="detail-desc">${esc(e.desc)}</div><div class="detail-meta">${esc(e.date)}</div></div><div class="detail-amt">-${fmt(e.amount)}</div></div>`).join("");
   $("modalOverlay").classList.add("open");
 }
 
@@ -310,16 +340,15 @@ function openModal(cat) {
 function openEditModal(index) {
   const e = cachedEntries[index];
   if (!e) return;
-  editing = { entry: e, year: currentYear, month: currentMonth }; // 저장 시점까지 이 스냅샷으로 항목을 식별
-  $("editCategory").value = e.category;
-  $("editDesc").value = e.desc;
+  // 저장 시점까지 이 스냅샷으로 항목을 식별. 달은 화면 탭이 아니라 이 항목을 불러온 달
+  const { year, month } = cachedMonth;
+  editing = { entry: e, year, month };
+  // 목록에 없는 분류(옛 데이터)면 select가 빈 값이 돼 그대로 저장하면 분류가 사라지므로 '기타'로
+  $("editCategory").value = CATS.includes(e.category) ? e.category : "기타";
+  $("editDesc").value = e.desc ?? "";
   $("editAmount").value = e.amount;
-  // 날짜 입력 범위를 보고 있는 달로 제한 (월 불일치 방지)
-  const { min, max } = monthBounds();
-  $("editDate").min = min;
-  $("editDate").max = max;
   const d = dayOf(e.date);
-  $("editDate").value = Number.isNaN(d) ? "" : toISO(currentYear, currentMonth + 1, d);
+  $("editDate").value = Number.isNaN(d) ? "" : toISO(year, month + 1, clampDay(d, daysInMonth(year, month + 1)));
   $("editModalOverlay").classList.add("open");
 }
 
@@ -335,27 +364,42 @@ async function saveEdit() {
   if (!ensureReady()) return;
   const { entry: target, year, month } = editing;
   const oldKey = entryKey(target); // 서버 최신본에서 이 항목을 찾을 키
-  // 날짜: 항목이 든 달로 고정, 고른 '일'만 반영 (월 불일치 방지)
-  const oldDate = target.date;
-  const timePart = timeOf(oldDate);
-  const { last } = monthBounds(year, month);
-  const origDay = dayOf(oldDate);
-  const day = resolveDay($("editDate").value, (!origDay || isNaN(origDay)) ? 1 : origDay, last);
-  const newDate = makeEntryDate(month, day, timePart);
+  // 날짜: 고른 날짜 그대로 (비었거나 깨졌으면 원래 날짜). 시각은 원래 것을 유지
+  const origDay = dayOf(target.date);
+  const picked = parseISO($("editDate").value) ||
+    { year, month: month + 1, day: clampDay(Number.isNaN(origDay) ? 1 : origDay, daysInMonth(year, month + 1)) };
+  const moved = picked.year !== year || picked.month - 1 !== month; // 다른 달로 옮기는지
   // id가 없던 옛 항목이면 이번 편집에 id를 부여(자가 치유): 이후 arrayUnion 중복 오인·수정 오조준 방지
-  const newEntry = { ...target, desc, amount, category, date: newDate, id: target.id || genId() };
+  const newEntry = { ...target, desc, amount, category, date: makeEntryDate(picked.month - 1, picked.day, timeOf(target.date)), id: target.id || genId() };
 
-  // 트랜잭션: 최신 배열에서 키로 찾아 교체 (동시 편집에도 엉뚱한 항목 안 건드림)
+  let found = false;
   try {
-    await mutateEntries(year, month, (arr) => replaceEntry(arr, oldKey, newEntry));
+    if (!moved) {
+      // 트랜잭션: 최신 배열에서 키로 찾아 교체 (동시 편집에도 엉뚱한 항목 안 건드림)
+      await mutateEntries(year, month, (arr) => {
+        found = arr.some((e) => entryKey(e) === oldKey);
+        return replaceEntry(arr, oldKey, newEntry);
+      });
+    } else {
+      // 다른 달로 옮기기: 새 달에 먼저 넣고 옛 달에서 뺌 (중간에 끊겨도 내역이 사라지진 않게 — 최악은 양쪽에 남음)
+      found = (await loadMonth(year, month)).entries.some((e) => entryKey(e) === oldKey);
+      if (found) {
+        await appendEntries(picked.year, picked.month - 1, [newEntry]);
+        await mutateEntries(year, month, (arr) => removeEntry(arr, oldKey));
+      }
+    }
   } catch (e) {
     reportSaveError(e);
     return;
   }
-  rememberRule(desc, category);
   closeEditModal();
   await loadData();
-  showToast("✅ 수정했어요!");
+  if (!found) {
+    showToast("이미 지워진 내역이에요 (다른 기기에서 지웠을 수 있어요).", "error");
+    return;
+  }
+  rememberRule(desc, category);
+  showToast(moved ? `✅ ${picked.month}월 ${picked.day}일로 옮겼어요` : "✅ 수정했어요!");
 }
 
 async function deleteEntry() {
@@ -364,15 +408,19 @@ async function deleteEntry() {
   if (!ensureReady()) return;
   const { entry, year, month } = editing;
   const oldKey = entryKey(entry);
+  let found = false;
   try {
-    await mutateEntries(year, month, (arr) => removeEntry(arr, oldKey));
+    await mutateEntries(year, month, (arr) => {
+      found = arr.some((e) => entryKey(e) === oldKey);
+      return removeEntry(arr, oldKey);
+    });
   } catch (e) {
     reportSaveError(e);
     return;
   }
   closeEditModal();
   await loadData();
-  showToast("🗑 삭제했어요");
+  showToast(found ? "🗑 삭제했어요" : "이미 지워진 내역이에요.");
 }
 
 function closeEditModal() {
@@ -391,9 +439,9 @@ async function saveBudget() {
     return;
   }
   if (!ensureReady()) return;
-  // 예산만 원자적으로 갱신 — entries는 건드리지 않아 동시 추가분과 충돌 없음
+  // 예산만 원자적으로 갱신 — entries는 건드리지 않아 동시 추가분과 충돌 없음 (화면에 보이는 달의 예산)
   try {
-    await setBudget(currentYear, currentMonth, val);
+    await setBudget(cachedMonth.year, cachedMonth.month, val);
   } catch (e) {
     reportSaveError(e);
     return;
@@ -404,22 +452,27 @@ async function saveBudget() {
 }
 
 // ── 최근 6개월 추이 로드 ──
+let trendSeq = 0;
 async function loadAndRenderTrend() {
   if (!loadMonth || !getUser()) return;
   const section = $("trendSection");
   if (!section) return;
+  const seq = ++trendSeq;
+  const { year, month } = cachedMonth;
+  const entries = cachedEntries;
   const targets = [];
   for (let i = 5; i >= 0; i--) {
-    let y = currentYear, m = currentMonth - i;
+    let y = year, m = month - i;
     while (m < 0) { m += 12; y--; }
     targets.push({ y, m });
   }
-  // 6개월치는 서로 독립적이라 병렬 조회. 현재 보고 있는 달은 이미 cachedEntries에 있으니 재조회 생략.
+  // 6개월치는 서로 독립적이라 병렬 조회. 보고 있는 달은 이미 cachedEntries에 있으니 재조회 생략.
   const results = await Promise.all(targets.map(({ y, m }) =>
-    (y === currentYear && m === currentMonth)
-      ? Promise.resolve({ entries: cachedEntries })
+    (y === year && m === month)
+      ? Promise.resolve({ entries })
       : loadMonth(y, m).catch(() => ({ entries: [] }))
   ));
+  if (seq !== trendSeq) return; // 그사이 다른 달로 옮겨 다시 그렸으면 늦게 온 이 결과는 버림
   const months = targets.map(({ m }, i) => ({ label: `${m + 1}월`, total: sumAmount(results[i].entries) }));
   section.hidden = false;
   renderMonthlyTrend(months);
@@ -427,14 +480,14 @@ async function loadAndRenderTrend() {
 
 // ════════ 이벤트 연결 ════════
 function wireEvents() {
-  $("btnAdd").addEventListener("click", addEntry);
-  $("btnBudget").addEventListener("click", saveBudget);
+  $("btnAdd").addEventListener("click", once(addEntry));
+  $("btnBudget").addEventListener("click", once(saveBudget));
 
   // 연도 이동 ◀ ▶
   $("yearPrev").addEventListener("click", () => changeYear(-1));
   $("yearNext").addEventListener("click", () => changeYear(1));
-  $("btnSaveEdit").addEventListener("click", saveEdit);
-  $("btnDelete").addEventListener("click", deleteEntry);
+  $("btnSaveEdit").addEventListener("click", once(saveEdit));
+  $("btnDelete").addEventListener("click", once(deleteEntry));
   $("editClose").addEventListener("click", closeEditModal);
   $("modalClose").addEventListener("click", closeCatModal);
 
@@ -466,7 +519,7 @@ function wireEvents() {
   });
   $("calGrid").addEventListener("click", (e) => {
     const cell = e.target.closest("[data-day]");
-    if (cell) renderCalendar(cachedEntries, currentYear, currentMonth, Number(cell.dataset.day));
+    if (cell) renderCalendar(cachedEntries, cachedMonth.year, cachedMonth.month, Number(cell.dataset.day));
   });
 
   $("searchInput").addEventListener("input", (e) => {
@@ -502,11 +555,13 @@ function wireEvents() {
       // 코드가 전달되지 않으므로, 직접 붙여넣어 전환할 수 있는 창구를 함께 제공.
       const pasted = prompt(
         "가족 초대 링크를 복사했어요:\n" + link +
-        "\n\n※ 홈 화면 앱에서 다른 기기의 코드로 바꾸려면, 아래에 그 코드를 붙여넣고 확인을 누르세요.",
+        "\n\n※ 홈 화면 앱에서 다른 기기의 코드로 바꾸려면, 아래에 그 코드(또는 받은 초대 링크)를 붙여넣고 확인을 누르세요.",
         current
       );
-      if (pasted && pasted.trim() && pasted.trim() !== current) {
-        if (setHouseholdId(pasted.trim())) {
+      // 코드 대신 받은 초대 링크를 통째로 붙여넣는 경우가 많아, 링크면 그 안의 코드를 꺼냄
+      const code = hidFromInput(pasted);
+      if (code && code !== current) {
+        if (setHouseholdId(code)) {
           showToast("✅ 가족 코드를 바꿨어요. 새로고침할게요...");
           location.reload();
         } else {

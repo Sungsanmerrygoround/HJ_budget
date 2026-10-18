@@ -6,9 +6,13 @@
 
 import { CATS } from "./categorize.js";
 
+// 금액을 숫자로 (옛 데이터에 "3000"처럼 문자로 저장된 금액이 있으면 더하기가 글자 이어붙이기가 돼
+// 합계가 "5,400,300,012,000원"처럼 깨짐)
+const amountOf = (e) => Number(e.amount) || 0;
+
 /** 전체 지출 합계 */
 export function sumAmount(entries) {
-  return entries.reduce((s, e) => s + e.amount, 0);
+  return entries.reduce((s, e) => s + amountOf(e), 0);
 }
 
 /** 카테고리별 합계를 CATS와 같은 순서의 배열로 (한 번의 순회). */
@@ -17,7 +21,7 @@ export function categoryTotals(entries) {
   const indexOf = new Map(CATS.map((c, i) => [c, i]));
   for (const e of entries) {
     const i = indexOf.get(e.category);
-    if (i !== undefined) totals[i] += e.amount; // CATS에 없는 카테고리는 무시(기존과 동일)
+    if (i !== undefined) totals[i] += amountOf(e); // CATS에 없는 카테고리는 무시(기존과 동일)
   }
   return totals;
 }

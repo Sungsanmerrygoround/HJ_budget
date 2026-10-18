@@ -48,6 +48,23 @@ export function getHouseholdId() {
   }
 }
 
+/**
+ * 사용자가 붙여넣은 글에서 가족 코드를 꺼냅니다. 초대 링크("https://…/?h=코드")를 통째로 붙여넣어도 그 코드를,
+ * 코드만 붙여넣으면 그대로 돌려줍니다 (앞뒤 공백 제거). 비었으면 "".
+ */
+export function hidFromInput(text) {
+  const s = String(text ?? "").trim();
+  if (!s) return "";
+  if (/[?&]h=/.test(s)) {
+    try {
+      return new URL(s, "https://x.invalid/").searchParams.get("h")?.trim() || "";
+    } catch {
+      return s;
+    }
+  }
+  return s;
+}
+
 /** 가족에게 공유할, 코드가 담긴 링크를 만듭니다. */
 export function shareLink(hid = getHouseholdId()) {
   const u = new URL(location.href);
