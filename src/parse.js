@@ -22,7 +22,17 @@ const AMOUNT_RE = /([-+‒–—−])?\s*([\d][\d,.]*)\s*원/; // (부호?) 숫�
 // '원' 글자를 OCR이 통째로 놓친 경우의 구제용: 부호가 분명히 붙은 숫자만 인정
 // (잔액은 부호가 없으니 이 패턴에 잡히지 않음)
 const SIGNED_NO_WON_RE = /([-+‒–—−])\s*([\d][\d,.]*[\d])(?!\s*[:.\d%])/;
+// 부호도 '원'도 없는 금액(카드 이용내역에서 '원'이 빠진 "이마트 성수점 87,350")용: 줄 끝의 천 단위 쉼표 숫자
+const BARE_AMOUNT_RE = /(\d{1,3}(?:[,.]\d{3})+)\s*$/;
 const TIME_RE = /\b(\d{1,2}):(\d{2})\b/; // 16:38
+// 줄 끝 '원'을 OCR이 다른 글자로 읽은 것("1,234,500&", "-4,400H", "2,440,520¥", "+5,500뭔", "-2,800%", "65,000:").
+// 금액 모양 숫자(부호가 붙었거나 천 단위 쉼표)일 때만 되돌린다 — 줄 중간의 "7&7 마트"나 원래 글자인 "GS25 &"가
+// 25원짜리 지출이 되지 않게. %·:는 할인율("-10%")·시각과 헷갈리니 천 단위 쉼표가 있을 때만.
+const WON_MISREAD_RE = /([-+‒–—−]\s*\d[\d,.]*|\d{1,3}(?:[,.]\d{3})+)\s*[&H¥뭔윈]$/;
+const WON_PERCENT_RE = /([-+‒–—−]?\s*\d{1,3}(?:[,.]\d{3})+)\s*[%:]$/;
+// 천 단위 쉼표를 띄어쓰기로 읽은 숫자("2 460,400") → "2,460,400" (뒤에 쉼표 묶음이 더 있을 때만).
+// 앞 숫자가 시간의 일부("16:38 975,950")면 붙이지 않음 (옛 iOS Safari가 못 읽는 lookbehind 대신 앞 글자를 함께 잡음)
+const SPACED_THOUSANDS_RE = /(^|[^\d:])(\d{1,3}) (\d{3}[,.]\d{3})/g;
 
 // 잔액으로 판정할 배수: 부호 없는 숫자가 직전 거래금액의 N배 이상이면 잔액으로 본다.
 // (실제 잔액은 보통 거래금액의 수십~수백 배라 4배 기준은 매우 안전)
@@ -39,17 +49,28 @@ const MAX_AMOUNT = 100000000;
 // 상단 요약/안내 줄(거래가 아님)을 거르는 패턴.
 // 핵심 방어는 "첫 날짜 헤더 위는 전부 무시"(startIdx)이고, 이건 날짜 헤더가 없는 화면용 보조 장치다.
 // 가맹점 이름(예: "큰지출가맹점", "수입식품")을 오인해 버리지 않도록, 요약에만 나오는 문구로 좁힌다.
-const SUMMARY_RE = /지난달|이번\s?달|비해|평균|쓰고\s?있|덜\s?쓰|더\s?쓰|모으고|^(소비|수입|지출|합계|총\s?지출)\s*[\d,.]+\s*원$/;
+// (카드 앱 상단의 "결제 예정 금액 1,234,560원"·"이용 가능 한도" 같은 요약도 거래가 아님.
+//  '한도'만으로 거르면 "대한도시가스" 같은 가맹점까지 버려져서 문구째로 좁힘)
+const SUMMARY_RE = /지난달|이번\s?달|비해|평균|쓰고\s?있|덜\s?쓰|더\s?쓰|모으고|결제\s?예정|(?:이용|사용)\s?가능\s?(?:금액|한도)|^(소비|수입|지출|합계|총\s?지출)\s*[\d,.]+\s*원$/;
 
-// 날짜 헤더 "6월 7일 일요일"은 요일 단어로 알아본다. OCR이 "일요 일"처럼 띄어 읽기도 하고,
+// 날짜 헤더 "6월 7일 일요일"·"10월 17일 (토)"는 요일로 알아본다. OCR이 "일요 일"처럼 띄어 읽기도 하고,
 // 뒤에 한글이 바로 붙으면 가맹점명("일요일카페")이며, 앞 글자가 요일이 아니면 다른 말("요기요 일시불")이다.
-const WEEKDAY_RE = /[월화수목금토일]\s?요\s?일(?![가-힣])/;
-// 헤더는 보통 작은 회색 글씨라 OCR이 '월'을 &·8로, '일'을 %로 잘못 읽곤 해서
-// (실제로 "10월 15일 목요일" → "108 15% 목요일") 월이 같이 있으면 그런 경우도 날짜로 받아준다.
+const WEEKDAY_RE = /[월화수목금토일]\s?요\s?일(?![가-힣])|\(\s?[월화수목금토일]\s?\)/;
+// 요일 없이 날짜만 있는 줄("10월 16일", 일별 합계가 붙은 "10월 16일 -7,800원") — 줄 전체가 그것일 때만 헤더.
+// 괄호 속 요일을 못 읽은 "10월 15¢ (8)"·"10.15 (2)"도 (괄호 안 한두 글자는 무엇이든. 연도 없는 점 날짜는 괄호가 있어야)
+const DATE_ONLY_RE = /^(?:(?:\d{1,2}\s*[월윌&8]\s*\d{1,2}\s*[일%¢]|\d{4}\s*[.\/-]\s*\d{1,2}\s*[.\/-]\s*\d{1,2}\.?)(?:\s*\(.{1,2}\))?|\d{1,2}\s*[.\/]\s*\d{1,2}\s*\(.{1,2}\))(?:\s*[-+‒–—−]?\s*[\d,.]+\s*원?)?$/;
+// 점으로 쓴 날짜 "10.17 (토)"·"2026.10.17" (요일이 있거나 연도까지 쓴 헤더 줄에서만 — "4.8" 같은 숫자를 날짜로 보지 않게)
+const DOTTED_DATE_RE = /(?:^|[^\d])(?:(\d{4})\s*[.\/-]\s*)?(\d{1,2})\s*[.\/]\s*(\d{1,2})(?![\d,])/;
+// "오늘"·"어제" 헤더 (요일·일별 합계가 붙어도). "오늘의집" 같은 가맹점은 아님
+const RELATIVE_RE = /^(오늘|어제)(?:\s*\(?\s?[월화수목금토일](?:요일)?\s?\)?)?(?:\s*[-+‒–—−]?\s*[\d,.]+\s*원?)?$/;
+// 헤더는 보통 작은 회색 글씨라 OCR이 '월'을 &·8로, '일'을 %·¢로 잘못 읽곤 해서
+// (실제로 "10월 15일 목요일" → "108 15% 목요일", "10월 15일 (목)" → "10월 15¢ (8)") 월이 같이 있으면 그런 경우도 날짜로 받아준다.
 // ('일요일'의 '일'은 날짜의 '일'이 아님: "108 42 일요일"을 42일로 읽지 않게)
-const MONTH_DAY_RE = /(\d{1,2})\s*[월윌&8]\s*(\d{1,2})\s*[일%](?!\s?요)/;
+const MONTH_DAY_RE = /(\d{1,2})\s*[월윌&8]\s*(\d{1,2})\s*[일%¢](?!\s?요)/;
 // '일'을 2로 읽거나 빠뜨린 헤더("10월 12일" → "108 122 월요일", "9월 30일" → "9월 302 수요일")용: 요일 바로 앞 숫자
-const MONTH_NUM_RE = /(\d{1,2})\s*[월윌&8]\s*(\d{1,3})\s*(?=[월화수목금토일]\s?요\s?일)/;
+const MONTH_NUM_RE = /(\d{1,2})\s*[월윌&8]\s*(\d{1,3})\s*(?=[월화수목금토일]\s?요\s?일|\(\s?[월화수목금토일]\s?\))/;
+// '월'과 '일'을 둘 다 2로 읽은 헤더("10월 14일 (수)" → "102 142 (수)", "10월 1일 목요일" → "10212 목요일")용
+const MONTH_DAY_2_RE = /(\d{1,2})2\s*(\d{1,2})2\s*(?=[월화수목금토일]\s?요\s?일|\(\s?[월화수목금토일]\s?\))/;
 // '일'만 읽힌 헤더. 월이 없으면 %는 받지 않는다("매주 금요일 5% 적립" 배너가 5일이 되지 않게)
 const DAY_RE = /(\d{1,2})\s*일(?!\s?요)/;
 // 결제 예정 등으로 목록에 앞으로의 날짜도 보여서, 오늘부터 이 기간 안이면 미래 날짜도 그대로 둔다
@@ -71,13 +92,11 @@ export function parseTransactions(rawText, opts = {}) {
   // 전각(full-width) 숫자·기호를 반각으로 정규화(NFKC): OCR이 "－５，５００원" 같은
   // 전각 문자를 내보내면 금액 정규식이 통째로 놓쳐 거래가 통째로 사라진다.
   // (반각 하이픈만 변환되고 en/em 대시는 그대로라, 아래 isMinus의 대시 처리도 유지됨)
-  // 줄 끝 금액의 '원'을 OCR이 '&'로 읽는 일도 잦아("1,234,500&") 줄 끝에 한해 '원'으로 되돌린다.
-  // 단, 부호가 붙었거나 천 단위 쉼표가 있는 '금액 모양' 숫자일 때만 (줄 중간의 "7&7 마트"나,
-  // 줄 끝 &가 원래 글자인 "GS25 &" 같은 가맹점 줄이 25원짜리 지출이 되지 않게)
+  // 줄 끝 '원'을 다른 글자로 읽은 금액과, 쉼표를 띄어쓰기로 읽은 숫자도 바로잡는다 (WON_MISREAD_RE 등 참고)
   const lines = String(rawText ?? "")
     .normalize("NFKC")
     .split("\n")
-    .map((l) => l.trim().replace(/([-+‒–—−]\s*\d[\d,.]*|\d{1,3}(?:[,.]\d{3})+)\s*&$/, "$1원"))
+    .map((l) => l.trim().replace(SPACED_THOUSANDS_RE, "$1$2,$3").replace(WON_MISREAD_RE, "$1원").replace(WON_PERCENT_RE, "$1원"))
     .filter(Boolean);
 
   const expenses = [];
@@ -113,7 +132,7 @@ export function parseTransactions(rawText, opts = {}) {
       if (headerDate) {
         currentDate = headerDate;
         sawDate = true;
-        if (!firstDate && monthDayOf(line)) firstDate = headerDate;
+        if (!firstDate && !isDayOnly(line)) firstDate = headerDate;
       }
       lastTxn = null;
       expectBalance = false;
@@ -125,9 +144,10 @@ export function parseTransactions(rawText, opts = {}) {
     // 2) 상단 요약/안내 줄은 통째로 무시
     if (SUMMARY_RE.test(line)) continue;
 
-    const m = matchAmount(line);
     const timeM = line.match(TIME_RE);
     const hasTime = !!timeM;
+    // 시간이 있는 줄의 부호·'원' 없는 숫자는 잔액이라 아래에서 따로 다룸
+    const m = matchAmount(line) || (hasTime ? null : matchBareAmount(line));
 
     if (!m) {
       // 숫자가 없는 줄: 시간만 있는 줄이면 직전 거래에 시간 붙이기
@@ -140,11 +160,13 @@ export function parseTransactions(rawText, opts = {}) {
           const v = Number(bare[1].replace(/[,.]/g, ""));
           if (v > 0) {
             lastBalance = v;
-            expectBalance = false;
             ambiguousIdx = -1;
             seq.push({ type: "bal", value: v });
           }
         }
+        // 잔액이 없는 시간 줄(카드 이용내역의 "17:02 · 일시불")이어도 그 거래의 둘째 줄은 끝났으니, 다음 숫자는 이 거래의
+        // 잔액이 아님 (작은 금액 뒤의 큰 지출 "커피 2,000원 → 이마트 87,350원"을 잔액으로 버리지 않게)
+        expectBalance = false;
       }
       // 그 외 글자 줄은 가맹점명 후보로 모아둔다(다음 금액 줄에 이름이 없을 때 사용)
       else addPendingMerchant(cleanMerchant(line));
@@ -256,6 +278,8 @@ export function parseTransactions(rawText, opts = {}) {
   // "-7,000원" → ",000원"(0원), "-27,830원" → "7,830원" 등).
   // 거래내역은 최신순이라 "다음(아래) 잔액 − 이 거래의 잔액 = 진짜 거래금액"이므로,
   // 읽은 금액이 깨졌거나(0원) 기대값의 끝자리와만 일치하면(앞자리 누락) 산수로 교정한다.
+  // 앞자리는 한두 개만 떨어져 나가므로 그 이상 차이 나면 교정하지 않음 — 잔액을 잘못 읽은 경우
+  // ("2,460,400"→"460,400") 산수가 엉뚱해져 4,400원이 2,004,400원으로 '교정'되지 않게.
   for (let i = 0; i < seq.length; i++) {
     if (seq[i].type !== "txn") continue;
     const own = seq[i + 1]; // 이 거래 직후의 잔액
@@ -270,7 +294,8 @@ export function parseTransactions(rawText, opts = {}) {
     if (expected <= 0 || expected > 10000000) continue;
     const t = seq[i].txn;
     if (t.amount === expected) continue;
-    if (t.amount === 0 || String(expected).endsWith(String(t.amount))) {
+    const lost = String(expected).length - String(t.amount).length; // 떨어져 나간 앞자리 수
+    if (t.amount === 0 || (lost <= 2 && String(expected).endsWith(String(t.amount)))) {
       t.amount = expected;
     }
   }
@@ -290,6 +315,9 @@ export function parseTransactions(rawText, opts = {}) {
 function matchAmount(line) {
   const m = line.match(AMOUNT_RE);
   if (m) return m;
+  // 시간이 있는 줄의 '원' 없는 부호 숫자는 금액이 아님: 카드 이용내역의 "17:02 · 3개월 할부"를 OCR이
+  // "17:02 - 370 할부"로 읽으면 370원 지출이 생김 (은행 화면의 시간 줄엔 부호 없는 잔액만 있음)
+  if (TIME_RE.test(line)) return null;
   const f = line.match(SIGNED_NO_WON_RE);
   if (!f) return null;
   // 부호 앞이 숫자면(예: "6-7", "2025-06-07") 날짜/범위이지 금액이 아님
@@ -298,6 +326,14 @@ function matchAmount(line) {
   // 너무 작은 숫자는 금액일 가능성이 낮아 버림 (노이즈 방지)
   if (Number(f[2].replace(/[,.]/g, "")) < 100) return null;
   return f;
+}
+
+// 부호도 '원'도 없는 금액(카드 이용내역 "이마트 성수점 87,350"): 줄 끝의 천 단위 쉼표 숫자이고 앞에 가맹점 글자가 있을 때만.
+// matchAmount와 같은 모양([전체, 부호(없음), 숫자])으로 돌려줌. 잔액처럼 보이면 아래의 잔액 판별이 걸러냄.
+function matchBareAmount(line) {
+  const b = line.match(BARE_AMOUNT_RE);
+  if (!b || !/[가-힣A-Za-z]/.test(line.slice(0, b.index))) return null;
+  return Object.assign([b[0], undefined, b[1]], { index: b.index });
 }
 
 function isMinus(sign) {
@@ -320,10 +356,11 @@ function cleanMerchant(s) {
     .trim();
 }
 
-// 날짜 헤더 줄인지: 요일 단어가 있으면 헤더. 단 금액도 있으면, 요일 앞에 날짜(숫자·오늘·어제)가 있을 때만
-// — 날짜를 잘못 읽은 일별 합계 헤더("6월 7잎 일요일 -7,800원")는 헤더로 건너뛰고(합계가 지출로 한 번 더 잡히지 않게),
-//   "금요일 포차 -30,000원" 같은 가맹점 줄은 거래로 남긴다.
+// 날짜 헤더 줄인지: 날짜만 있는 줄·"오늘"·"어제"이거나, 요일이 있으면 헤더. 단 요일과 함께 금액도 있으면,
+// 요일 앞에 날짜(숫자·오늘·어제)가 있을 때만 — 날짜를 잘못 읽은 일별 합계 헤더("6월 7잎 일요일 -7,800원")는
+// 헤더로 건너뛰고(합계가 지출로 한 번 더 잡히지 않게), "금요일 포차 -30,000원" 같은 가맹점 줄은 거래로 남긴다.
 function isDateHeader(line) {
+  if (DATE_ONLY_RE.test(line) || RELATIVE_RE.test(line)) return true;
   const w = WEEKDAY_RE.exec(line);
   if (!w) return false;
   return !matchAmount(line) || /\d|오늘|어제/.test(line.slice(0, w.index));
@@ -332,14 +369,18 @@ function isDateHeader(line) {
 // 날짜 헤더 → "YYYY-MM-DD" (못 읽으면 null).
 //  - "10월 15일": 헤더엔 연도가 없어 작년·올해·내년 중 '오늘 + FUTURE_DAYS'를 넘지 않는 가장 늦은 날로 본다.
 //    (10월에 본 "10월 25일" 결제 예정은 올해, 1월에 본 "12월 30일"은 작년, 12월 31일에 본 "1월 1일"은 내년)
+//  - "오늘"·"어제": 그날
 //  - "15일"(월을 못 읽음): 목록은 최신순이라 앞 날짜(prevISO)보다 늦을 수 없으니, 그 이전의 가장 가까운 15일.
 //    앞 날짜가 없으면 내일을 기준으로 (기기 시계·시간대 차이 하루는 봐줌)
 // OCR이 숫자를 잘못 읽어 생긴 없는 날짜(2월 30일 등)는 날짜로 쓰지 않는다.
 function parseDateHeader(line, now, prevISO) {
+  const rel = line.match(RELATIVE_RE);
+  if (rel) return todayISO(new Date(now.getFullYear(), now.getMonth(), now.getDate() - (rel[1] === "어제" ? 1 : 0)));
   const md = monthDayOf(line);
   if (md) {
-    const [month, day] = md;
+    const [month, day, givenYear] = md;
     if (month < 1 || month > 12) return null;
+    if (givenYear) return day >= 1 && day <= daysInMonth(givenYear, month) ? toISO(givenYear, month, day) : null;
     const limit = new Date(now.getFullYear(), now.getMonth(), now.getDate() + FUTURE_DAYS);
     for (let year = now.getFullYear() + 1; year >= now.getFullYear() - 1; year--) {
       if (day >= 1 && day <= daysInMonth(year, month) && new Date(year, month - 1, day) <= limit) {
@@ -362,14 +403,26 @@ function parseDateHeader(line, now, prevISO) {
   return toISO(year, month, day);
 }
 
-// 헤더의 [월, 일] (월이 안 보이면 null). '일'이 안 보이면 요일 바로 앞 숫자를 쓰는데,
-// 31 이하면 '일'이 빠진 것으로 보고 그대로, 넘으면 끝의 2를 '일'로 보고 뗀다 (122 → 12일, 302 → 30일, 42 → 4일)
+// 월을 못 읽어 '일'만으로 정한 헤더인지 (그 날짜는 앞 날짜에 따라 달라짐)
+function isDayOnly(line) {
+  return !RELATIVE_RE.test(line) && !monthDayOf(line);
+}
+
+// 헤더의 [월, 일, 연도(썼을 때만)] (월이 안 보이면 null). "10.17"·"2026.10.17"처럼 점으로 쓴 날짜도.
+// '일'이 안 보이면 요일 바로 앞 숫자를 쓰는데,
+// 31 이하면 '일'이 빠진 것으로 보고 그대로, 넘으면 끝의 2를 '일'로 보고 뗀다 (122 → 12일, 302 → 30일, 42 → 4일).
+// '월'까지 2로 읽혔으면 "102 142" → 10월 14일 (월·일 범위는 parseDateHeader가 다시 확인)
 function monthDayOf(line) {
   const md = line.match(MONTH_DAY_RE);
   if (md) return [Number(md[1]), Number(md[2])];
+  const dot = line.match(DOTTED_DATE_RE);
+  if (dot) return [Number(dot[2]), Number(dot[3]), dot[1] ? Number(dot[1]) : undefined]; // 연도를 썼으면 그 해
   const mn = line.match(MONTH_NUM_RE);
-  if (!mn) return null;
-  const n = Number(mn[2]);
-  if (n <= 31) return [Number(mn[1]), n];
-  return mn[2].endsWith("2") ? [Number(mn[1]), Number(mn[2].slice(0, -1))] : null;
+  if (mn) {
+    const n = Number(mn[2]);
+    if (n <= 31) return [Number(mn[1]), n];
+    return mn[2].endsWith("2") ? [Number(mn[1]), Number(mn[2].slice(0, -1))] : null;
+  }
+  const m2 = line.match(MONTH_DAY_2_RE);
+  return m2 ? [Number(m2[1]), Number(m2[2])] : null;
 }
